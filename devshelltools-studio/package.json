@@ -3,6 +3,10 @@
   "private": true,
   "version": "1.0.5",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://repo.mvp.edu.kg/QAS/WinShellTools.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

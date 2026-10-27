@@ -10,6 +10,7 @@
 **DevShellTools Studio** 是一个 Tauri 2 便携桌面工具，用于可视化管理 Windows PowerShell 开发快捷命令模块 DevShellTools。
 
 - **仓库根目录**：`D:\workspace_test\github_desk\DevShellTools`
+- **远程仓库**：https://repo.mvp.edu.kg/QAS/WinShellTools.git（仓库已更名为 WinShellTools）
 - **Studio 子目录**：`devshelltools-studio/`
 - **Studio / 模板版本**：1.0.5
 - **根目录模块版本**：1.0.4（与模板双轨，内容相近但不完全同步）

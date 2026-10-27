@@ -2,6 +2,8 @@
 
 Windows 上可扩展的 PowerShell 开发 / 运维快捷命令模块，附带可视化管理工具 **DevShellTools Studio**。
 
+> 仓库：<https://repo.mvp.edu.kg/QAS/WinShellTools>（仓库已更名为 WinShellTools；模块与产品名仍为 DevShellTools，安装目录与命令名不变）
+
 | 组件 | 版本 | 说明 |
 |------|------|------|
 | 根目录 PowerShell 模块 | **1.0.4** | `dsh` 入口；兼容 Windows PowerShell 5.1 与 PowerShell 7 |

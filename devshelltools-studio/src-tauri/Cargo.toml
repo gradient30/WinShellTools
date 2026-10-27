@@ -3,6 +3,7 @@ name = "devshelltools-studio"
 version = "1.0.5"
 description = "DevShellTools 便携管理工具"
 authors = ["DevShellTools"]
+repository = "https://repo.mvp.edu.kg/QAS/WinShellTools.git"
 edition = "2021"
 rust-version = "1.77"
 

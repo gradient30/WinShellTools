@@ -22,7 +22,7 @@
     PrivateData = @{
         PSData = @{
             Tags = @('PowerShell','DevOps','Git','Proxy','Network')
-            ProjectUri = ''
+            ProjectUri = 'https://repo.mvp.edu.kg/QAS/WinShellTools'
         }
     }
 }

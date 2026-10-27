@@ -4,6 +4,8 @@
 
 ## 项目概览
 
+远程仓库：https://repo.mvp.edu.kg/QAS/WinShellTools.git（仓库已更名为 WinShellTools；模块 / 产品名仍为 DevShellTools，命令、目录与文件名不变）。
+
 本仓库包含两个相关但独立的部分：
 
 1. **DevShellTools（仓库根目录）**：一个 Windows PowerShell 模块（当前版本 **1.0.4**），提供开发与运维快捷命令（文件浏览、Git、网络诊断、代理管理、PowerShell 会话管理等）。目标运行时同时兼容 Windows PowerShell 5.1 与 PowerShell 7。命令行入口是 `dsh`（交互式分类菜单与帮助）。
