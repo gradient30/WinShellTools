@@ -121,8 +121,9 @@ mod tests {
                 "Bypass",
                 "-Command",
                 &format!(
-                    // 仅使用隔离 Modules，避免主机真实 Modules 里的历史 backup 污染断言
-                    "$env:PSModulePath = '{}'; if (Get-Command dsh -ErrorAction SilentlyContinue) {{ 'FOUND' }} else {{ 'MISSING' }}",
+                    // 仅使用隔离 Modules，避免主机真实 Modules 里的历史 backup 污染断言；
+                    // 限定 -CommandType Function：PATH 中的同名可执行（如 nodejs 的 dsh shim）不参与模块自动加载判定
+                    "$env:PSModulePath = '{}'; if (Get-Command dsh -CommandType Function -ErrorAction SilentlyContinue) {{ 'FOUND' }} else {{ 'MISSING' }}",
                     modules.to_string_lossy().replace('\'', "''")
                 ),
             ])
