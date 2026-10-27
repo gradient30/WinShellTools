@@ -171,6 +171,12 @@ export interface Webview2Status {
   needs_guidance: boolean;
 }
 
+/** PowerShell 7 运行时状态（解析/校验/自测优先使用 pwsh，未装回退 5.1） */
+export interface PwshStatus {
+  pwsh_found: boolean;
+  version: string;
+}
+
 export interface ImportResult {
   imported: string[];
   skipped: string[];
@@ -396,5 +402,7 @@ export const api = {
   listLogs: () => invoke<string[]>("list_logs"),
   readLog: (name: string) => invoke<string>("read_log", { name }),
   webview2Status: () => invoke<Webview2Status>("webview2_status"),
-  webview2DownloadUrl: () => invoke<string>("webview2_download_url")
+  webview2DownloadUrl: () => invoke<string>("webview2_download_url"),
+  pwshStatus: () => invoke<PwshStatus>("pwsh_status"),
+  pwshDownloadUrl: () => invoke<string>("pwsh_download_url")
 };

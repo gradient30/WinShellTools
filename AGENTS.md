@@ -85,9 +85,10 @@ cargo test --offline --test m6_acceptance -- --test-threads=1
 
 ### Studio 后端（src-tauri/src/）
 
-- `commands.rs`：所有 `#[tauri::command]` 入口，注册于 `lib.rs`。
+- `commands.rs`：所有 `#[tauri::command]` 入口，注册于 `lib.rs`。**做文件 IO 或子进程的命令一律 `async + run_blocking`**（同步命令在主线程执行，会冻结窗口事件 = UI 假死；切工具箱卡顿即此类问题）；纯内存命令（如 `safety_check`）可保持同步。
 - `workspace.rs`：工作区 = MyDocuments（或 `DST_MY_DOCUMENTS`）下 `WindowsPowerShell\Modules\DevShellTools`；元数据在 `.studio/workspace.json`。
-- `install_mgr.rs`：软安装/卸载；每次执行前用内嵌模板覆盖工作区 `install.ps1`/`uninstall.ps1`。
+- `install_mgr.rs`：软安装/卸载；每次执行前用内嵌模板覆盖工作区 `install.ps1`/`uninstall.ps1`；运行时副本同步（`sync_runtime_modules`）按**逐字节内容比较**（`files_identical`，勿改回 mtime 比较——函数级删除会漏同步导致 PS7 副本残留已删命令）。
+- `pwsh.rs`：PowerShell 7 运行时检测（`OnceLock` 缓存）；解析/校验/自测优先 pwsh、回退 5.1（`ps_parser::which_powershell`）；设置页展示状态并在未装 7.x 时引导下载。
 - `migrate.rs`：从旧路径合并 `Public/*.ps1`。
 - `ps_parser.rs`：调用 `powershell.exe` AST 解析；支持 `parse_public_batch` 批量解析（另有容错版 `parse_public_batch_lenient`，供配置包预览：坏文件逐个标记不整体失败）。
 - `sync.rs`：重生成公共部分；分类列表内存 + 磁盘缓存。

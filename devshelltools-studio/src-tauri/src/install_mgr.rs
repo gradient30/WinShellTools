@@ -250,7 +250,7 @@ fn copy_path(from: &Path, to: &Path) -> DstResult<()> {
             copy_path(&entry.path(), &to.join(name))?;
         }
     } else {
-        if file_unchanged(from, to) {
+        if files_identical(from, to) {
             return Ok(());
         }
         if let Some(parent) = to.parent() {
@@ -264,20 +264,14 @@ fn copy_path(from: &Path, to: &Path) -> DstResult<()> {
     Ok(())
 }
 
-fn file_unchanged(from: &Path, to: &Path) -> bool {
-    let Ok(src_meta) = std::fs::metadata(from) else {
+/// 内容级比较：函数级删除/编辑不改变文件名，且 mtime 在跨目录复制、
+/// git checkout 等场景下不可靠（曾导致 PS7 副本残留已删除的函数）。
+/// 逐字节比较（模块文件都很小）确保 PS5.1/PS7 副本与工作区完全一致。
+fn files_identical(from: &Path, to: &Path) -> bool {
+    let (Ok(a), Ok(b)) = (std::fs::read(from), std::fs::read(to)) else {
         return false;
     };
-    let Ok(dst_meta) = std::fs::metadata(to) else {
-        return false;
-    };
-    if src_meta.len() != dst_meta.len() {
-        return false;
-    }
-    match (src_meta.modified(), dst_meta.modified()) {
-        (Ok(s), Ok(d)) => s <= d,
-        _ => false,
-    }
+    a == b
 }
 
 /// 卸载：执行工作区的 uninstall.ps1（软卸载：保留 Studio 工作区，禁用 shell 自动加载）。

@@ -108,6 +108,7 @@ DevShellTools/
 | 管理 | 分类与命令编辑、测试、同步公共部分、一致性校验 |
 | AI 助手 | 多 Profile；命令列表「AI审阅」会自动提问：检查问题 → 优化 → 扩展建议 |
 | 工具箱 | 迁移、配置包同步（导出/导入：全部分类命令 + 辅助函数 + AI 配置，**不含 API Key**）、日志、WebView2 |
+| 设置 | AI 多 Profile；PowerShell 7 运行时检测——解析/校验/自测优先 `pwsh`，未安装回退 5.1 并提供官方下载入口 |
 | 安装 / 卸载 | 写入 / 清理 Profile；软卸载禁用 `psd1`/`psm1` 防自动加载，保留工作区 |
 
 ### 开发运行
@@ -261,6 +262,13 @@ dsh
 
 - 新版安装备份：`Documents\DevShellTools-backups\`（在 Modules **之外**）。  
 - 旧版误放在 `Modules\DevShellTools.backup.*` 的目录，卸载时会挪到 `Documents\DevShellTools-backups\orphaned-module-backups\`。
+
+### Q13. 在 Studio 删除命令后，PowerShell 里还能用？
+
+分两种情况：
+
+1. **新开窗口仍可用**：不应发生——运行时副本按内容逐字节同步，删除后 PS5.1/PS7 目录与 psd1 导出清单都会同步更新；若遇到请反馈。
+2. **已打开的窗口仍可用**：正常。模块已加载进该会话内存，执行 `Import-Module DevShellTools -Force` 重载即可（工具箱/编辑操作的提示语中已注明）。
 
 ---
 

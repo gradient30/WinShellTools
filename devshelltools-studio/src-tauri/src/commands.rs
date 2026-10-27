@@ -10,6 +10,7 @@ use crate::install_mgr;
 use crate::logging;
 use crate::migrate;
 use crate::ps_parser;
+use crate::pwsh;
 use crate::safety;
 use crate::sync::{self, CategoryInfo};
 use crate::webview2;
@@ -30,8 +31,8 @@ where
 // ============ 工作区管理 ============
 
 #[tauri::command]
-pub fn workspace_status() -> DstResult<workspace::WorkspaceStatus> {
-    workspace::status()
+pub async fn workspace_status() -> DstResult<workspace::WorkspaceStatus> {
+    run_blocking(workspace::status).await
 }
 
 #[tauri::command]
@@ -42,13 +43,13 @@ pub fn init_workspace(app: AppHandle) -> DstResult<String> {
 // ============ 读取 ============
 
 #[tauri::command]
-pub fn list_public_files() -> DstResult<Vec<String>> {
-    workspace::list_public_files()
+pub async fn list_public_files() -> DstResult<Vec<String>> {
+    run_blocking(workspace::list_public_files).await
 }
 
 #[tauri::command]
-pub fn read_workspace_file(rel: String) -> DstResult<String> {
-    workspace::read_file(&rel)
+pub async fn read_workspace_file(rel: String) -> DstResult<String> {
+    run_blocking(move || workspace::read_file(&rel)).await
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -58,35 +59,48 @@ pub struct ListCategoriesResult {
 }
 
 #[tauri::command]
-pub fn list_categories() -> DstResult<ListCategoriesResult> {
-    let (mut categories, cached) = sync::scan_categories_cached_with_meta()?;
-    // UI 只展示公共命令；Assert-Git 等内部辅助函数保留在源码中，但不出现在命令列表
-    for c in &mut categories {
-        c.functions = sync::filter_public_functions(&c.functions);
-    }
-    Ok(ListCategoriesResult { categories, cached })
+pub async fn list_categories() -> DstResult<ListCategoriesResult> {
+    // 首次会启动 PowerShell 批量解析（秒级），必须放线程池，否则主线程假死
+    run_blocking(|| {
+        let (mut categories, cached) = sync::scan_categories_cached_with_meta()?;
+        // UI 只展示公共命令；Assert-Git 等内部辅助函数保留在源码中，但不出现在命令列表
+        for c in &mut categories {
+            c.functions = sync::filter_public_functions(&c.functions);
+        }
+        Ok(ListCategoriesResult { categories, cached })
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn read_category_file(file_name: String) -> DstResult<String> {
-    let rel = format!("Public/{file_name}");
-    workspace::read_file(&rel)
+pub async fn read_category_file(file_name: String) -> DstResult<String> {
+    run_blocking(move || {
+        let rel = format!("Public/{file_name}");
+        workspace::read_file(&rel)
+    })
+    .await
 }
 
 // ============ 写入（安全检查 + 重生成，无 git）============
 
 #[tauri::command]
-pub fn write_workspace_file(rel: String, content: String, _message: String) -> DstResult<()> {
-    workspace::write_file(&rel, &content)?;
-    workspace::touch_last_sync()?;
-    Ok(())
+pub async fn write_workspace_file(rel: String, content: String, _message: String) -> DstResult<()> {
+    run_blocking(move || {
+        workspace::write_file(&rel, &content)?;
+        workspace::touch_last_sync()?;
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn delete_workspace_file(rel: String, _message: String) -> DstResult<()> {
-    workspace::delete_file(&rel)?;
-    workspace::touch_last_sync()?;
-    Ok(())
+pub async fn delete_workspace_file(rel: String, _message: String) -> DstResult<()> {
+    run_blocking(move || {
+        workspace::delete_file(&rel)?;
+        workspace::touch_last_sync()?;
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -235,8 +249,17 @@ pub async fn apply_ai_code(
 // ============ 安装 / 卸载 ============
 
 #[tauri::command]
-pub fn install_status() -> install_mgr::InstallStatus {
-    install_mgr::install_status()
+pub async fn install_status() -> install_mgr::InstallStatus {
+    // 读取多个 Profile 与模块目录，放线程池
+    run_blocking(|| Ok(install_mgr::install_status()))
+        .await
+        .unwrap_or(install_mgr::InstallStatus {
+            workspace_ready: false,
+            ps51_module_present: false,
+            ps7_module_present: false,
+            profile_configured: false,
+            installed: false,
+        })
 }
 
 #[tauri::command]
@@ -262,8 +285,9 @@ pub fn safety_check(code: String) -> DstResult<safety::SafetyReport> {
 }
 
 #[tauri::command]
-pub fn validate_ps_syntax(code: String) -> DstResult<()> {
-    ps_parser::validate_syntax(&code)
+pub async fn validate_ps_syntax(code: String) -> DstResult<()> {
+    // 启动 PowerShell 子进程，放线程池避免阻塞 UI
+    run_blocking(move || ps_parser::validate_syntax(&code)).await
 }
 
 // ============ AI 配置 ============
@@ -537,78 +561,101 @@ pub struct ResumeListResult {
 }
 
 #[tauri::command]
-pub fn list_chat_sessions() -> DstResult<ResumeListResult> {
-    let summaries = chat_session::list_sessions()?;
-    let list_text = chat_session::format_resume_list(&summaries);
-    Ok(ResumeListResult {
-        summaries,
-        list_text,
+pub async fn list_chat_sessions() -> DstResult<ResumeListResult> {
+    // 重建索引会读取全部会话文件，放线程池
+    run_blocking(|| {
+        let summaries = chat_session::list_sessions()?;
+        let list_text = chat_session::format_resume_list(&summaries);
+        Ok(ResumeListResult {
+            summaries,
+            list_text,
+        })
     })
+    .await
 }
 
 #[tauri::command]
-pub fn load_chat_session(id: String) -> DstResult<ChatSession> {
-    let sess = chat_session::load_session(&id)?;
-    chat_session::set_active_id(Some(&id))?;
-    Ok(sess)
+pub async fn load_chat_session(id: String) -> DstResult<ChatSession> {
+    run_blocking(move || {
+        let sess = chat_session::load_session(&id)?;
+        chat_session::set_active_id(Some(&id))?;
+        Ok(sess)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn save_chat_session(session: ChatSession) -> DstResult<ChatSession> {
-    chat_session::save_session(session)
+pub async fn save_chat_session(session: ChatSession) -> DstResult<ChatSession> {
+    run_blocking(move || chat_session::save_session(session)).await
 }
 
 #[tauri::command]
-pub fn new_chat_session(profile_id: String) -> DstResult<ChatSession> {
-    chat_session::new_session(&profile_id)
+pub async fn new_chat_session(profile_id: String) -> DstResult<ChatSession> {
+    run_blocking(move || chat_session::new_session(&profile_id)).await
 }
 
 #[tauri::command]
-pub fn load_or_create_chat_session(profile_id: String) -> DstResult<ChatSession> {
-    chat_session::load_or_create_active(&profile_id)
+pub async fn load_or_create_chat_session(profile_id: String) -> DstResult<ChatSession> {
+    run_blocking(move || chat_session::load_or_create_active(&profile_id)).await
 }
 
 #[tauri::command]
-pub fn set_active_chat_session(id: String) -> DstResult<()> {
-    chat_session::set_active_id(Some(&id))
+pub async fn set_active_chat_session(id: String) -> DstResult<()> {
+    run_blocking(move || chat_session::set_active_id(Some(&id))).await
 }
 
 // ============ M4：迁移 / 导出导入 / 日志 / WebView2 ============
 
 #[tauri::command]
-pub fn check_migration() -> migrate::MigrationCheck { migrate::check_migration() }
+pub async fn check_migration() -> migrate::MigrationCheck {
+    // 扫描多个候选目录，放线程池避免切工具箱时阻塞 UI
+    run_blocking(|| Ok(migrate::check_migration())).await.unwrap_or(migrate::MigrationCheck {
+        has_legacy: false,
+        legacy_dirs: vec![],
+        workspace_initialized: false,
+    })
+}
 
 #[tauri::command]
-pub fn migrate_legacy() -> DstResult<migrate::MigrateResult> {
-    let result = migrate::migrate_from_legacy()?;
-    logging::log(
-        logging::LogLevel::Info,
-        "migrate",
-        &format!(
-            "迁移 {} 个文件；归档 {} 处",
-            result.migrated_files.len(),
-            result.archived_dirs.len()
-        ),
-    );
-    Ok(result)
+pub async fn migrate_legacy() -> DstResult<migrate::MigrateResult> {
+    run_blocking(move || {
+        let result = migrate::migrate_from_legacy()?;
+        logging::log(
+            logging::LogLevel::Info,
+            "migrate",
+            &format!(
+                "迁移 {} 个文件；归档 {} 处",
+                result.migrated_files.len(),
+                result.archived_dirs.len()
+            ),
+        );
+        Ok(result)
+    })
+    .await
 }
 
 /// 导出所有 Public/*.ps1 脚本到目标目录。
 #[tauri::command]
-pub fn export_workspace(target_dir: String) -> DstResult<Vec<String>> {
-    let files = export::export_scripts(&target_dir)?;
-    logging::log(logging::LogLevel::Info, "export", &format!("导出 {} 个脚本到 {target_dir}", files.len()));
-    Ok(files)
+pub async fn export_workspace(target_dir: String) -> DstResult<Vec<String>> {
+    run_blocking(move || {
+        let files = export::export_scripts(&target_dir)?;
+        logging::log(logging::LogLevel::Info, "export", &format!("导出 {} 个脚本到 {target_dir}", files.len()));
+        Ok(files)
+    })
+    .await
 }
 
 /// 从目录导入 ps1 脚本：逐个校验语法+安全，通过才写入，不破坏现有。
 #[tauri::command]
-pub fn import_workspace(source_dir: String) -> DstResult<export::ImportResult> {
-    let result = export::import_scripts(&source_dir)?;
-    sync::invalidate_category_cache();
-    sync::regenerate_all()?;
-    logging::log(logging::LogLevel::Info, "import", &format!("导入 {} 个脚本", result.imported.len()));
-    Ok(result)
+pub async fn import_workspace(source_dir: String) -> DstResult<export::ImportResult> {
+    run_blocking(move || {
+        let result = export::import_scripts(&source_dir)?;
+        sync::invalidate_category_cache();
+        sync::regenerate_all()?;
+        logging::log(logging::LogLevel::Info, "import", &format!("导入 {} 个脚本", result.imported.len()));
+        Ok(result)
+    })
+    .await
 }
 
 // ============ 完整配置包（双向同步 / 迁移） ============
@@ -654,13 +701,44 @@ pub async fn import_bundle(
 }
 
 #[tauri::command]
-pub fn list_logs() -> Vec<String> { logging::list_log_files() }
+pub async fn list_logs() -> Vec<String> {
+    run_blocking(|| Ok(logging::list_log_files())).await.unwrap_or_default()
+}
 
 #[tauri::command]
-pub fn read_log(name: String) -> DstResult<String> { Ok(logging::read_log_file(&name)) }
+pub async fn read_log(name: String) -> DstResult<String> {
+    run_blocking(move || Ok(logging::read_log_file(&name))).await
+}
 
 #[tauri::command]
-pub fn webview2_status() -> DstResult<webview2::Webview2Status> { webview2::check_webview2() }
+pub async fn webview2_status() -> DstResult<webview2::Webview2Status> {
+    // reg query 子进程较慢：结果缓存 + 线程池执行，避免阻塞主线程（切工具箱假死的根因之一）
+    static CACHE: std::sync::OnceLock<webview2::Webview2Status> = std::sync::OnceLock::new();
+    run_blocking(|| {
+        let status = CACHE
+            .get_or_init(|| {
+                webview2::check_webview2().unwrap_or(webview2::Webview2Status {
+                    installed: false,
+                    version: String::new(),
+                    needs_guidance: false,
+                })
+            })
+            .clone();
+        Ok(status)
+    })
+    .await
+}
 
 #[tauri::command]
 pub fn webview2_download_url() -> String { webview2::WEBVIEW2_DOWNLOAD_URL.to_string() }
+
+/// PowerShell 7 运行时状态（检测缓存；未安装时设置页引导下载）
+#[tauri::command]
+pub async fn pwsh_status() -> DstResult<pwsh::PwshStatus> {
+    run_blocking(|| Ok(pwsh::check_pwsh())).await
+}
+
+#[tauri::command]
+pub fn pwsh_download_url() -> String {
+    pwsh::PWSH_DOWNLOAD_URL.to_string()
+}

@@ -13,6 +13,7 @@ pub mod logging;
 pub mod migrate;
 pub mod process_util;
 pub mod ps_parser;
+pub mod pwsh;
 pub mod safety;
 pub mod sync;
 pub mod template;
@@ -91,6 +92,8 @@ pub fn run() {
             commands::read_log,
             commands::webview2_status,
             commands::webview2_download_url,
+            commands::pwsh_status,
+            commands::pwsh_download_url,
         ])
         .run(tauri::generate_context!())
         .expect("启动 DevShellTools Studio 失败");

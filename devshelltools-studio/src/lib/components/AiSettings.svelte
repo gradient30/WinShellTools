@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, type AiPreset, type AiProfile, type AiProtocol } from "../api";
+  import { api, type AiPreset, type AiProfile, type AiProtocol, type PwshStatus } from "../api";
   import { showToast } from "../stores/toast";
 
   let profiles = $state<AiProfile[]>([]);
@@ -9,6 +9,8 @@
   let loading = $state(true);
   let errMsg = $state<string | null>(null);
   let successMsg = $state<string | null>(null);
+  /** PowerShell 7 运行时状态（顶部卡片；null = 检测中） */
+  let pwsh = $state<PwshStatus | null>(null);
 
   let showDialog = $state(false);
   let editing = $state<AiProfile | null>(null);
@@ -45,7 +47,20 @@
     }
   }
 
-  onMount(load);
+  onMount(() => {
+    void load();
+    // PowerShell 7 检测独立加载，不阻塞 AI 配置列表
+    api.pwshStatus().then((s) => (pwsh = s)).catch(() => (pwsh = { pwsh_found: false, version: "" }));
+  });
+
+  async function openPwshDownload() {
+    try {
+      const url = await api.pwshDownloadUrl();
+      window.open(url, "_blank");
+    } catch {
+      window.open("https://aka.ms/powershell", "_blank");
+    }
+  }
 
   /// 根据 base_url 匹配预设 ID（不依赖 protocol）
   function matchPresetId(p: AiProfile): string {
@@ -267,6 +282,27 @@
 </script>
 
 <div class="p-5 max-w-3xl mx-auto">
+  <!-- PowerShell 运行时：解析/校验/自测优先 pwsh 7.x，未装回退 5.1 -->
+  {#if pwsh}
+    <div class="mb-4 bg-dst-elevated border border-dst-border rounded-lg p-3 flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <div class="text-sm font-medium {pwsh.pwsh_found ? 'text-dst-success' : 'text-dst-warning-fg'}">
+          {pwsh.pwsh_found ? `✓ PowerShell 7（pwsh ${pwsh.version}）` : "仅 Windows PowerShell 5.1"}
+        </div>
+        <p class="text-xs text-dst-fg-muted mt-0.5">
+          命令解析、语法校验与自测优先使用 pwsh 7.x，未安装时回退 5.1（功能不受影响，7.x 更快）。
+        </p>
+      </div>
+      {#if !pwsh.pwsh_found}
+        <button
+          type="button"
+          class="shrink-0 px-3 py-1.5 text-sm bg-dst-accent text-dst-accent-fg hover:bg-dst-accent-hover rounded"
+          onclick={openPwshDownload}>下载 PowerShell 7</button
+        >
+      {/if}
+    </div>
+  {/if}
+
   <div class="flex items-center justify-between mb-4">
     <h2 class="text-lg font-semibold text-dst-accent">AI 配置</h2>
     <button class="px-3 py-1.5 text-sm bg-dst-accent text-dst-accent-fg hover:bg-dst-accent-hover rounded" onclick={openAdd}>+ 添加配置</button>
