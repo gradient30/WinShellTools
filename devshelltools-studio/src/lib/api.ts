@@ -170,6 +170,49 @@ export interface ImportResult {
   errors: string[];
 }
 
+// ============ 完整配置包（双向同步 / 迁移） ============
+
+export type BundleKind = "category" | "private" | "ai";
+export type BundleAction = "add" | "overwrite" | "same" | "keep_local" | "invalid";
+
+export interface ExportBundleResult {
+  /** 写出的文件（含 manifest.json，相对包目录） */
+  files: string[];
+  /** 随包导出的 AI Profile 数（0 = 无配置未打包） */
+  ai_profiles: number;
+  target_dir: string;
+}
+
+export interface BundleItem {
+  rel: string;
+  kind: BundleKind;
+  action: BundleAction;
+  checked: boolean;
+  commands: number;
+  syntax_ok: boolean;
+  safety_ok: boolean;
+  note: string;
+}
+
+export interface BundlePreview {
+  manifest_found: boolean;
+  template_version: string;
+  exported_at: string;
+  items: BundleItem[];
+  ai_new: number;
+  ai_existing: number;
+}
+
+export interface ImportBundleResult {
+  imported: string[];
+  ai_added: number;
+  /** 是否已重生成 psd1/psm1/Help.ps1 */
+  regenerated: boolean;
+  /** 是否已触发后台运行时目录同步 */
+  runtime_synced: boolean;
+  errors: string[];
+}
+
 export interface InstallStatus {
   workspace_ready: boolean;
   ps51_module_present: boolean;
@@ -330,6 +373,10 @@ export const api = {
   migrateLegacy: () => invoke<MigrateResult>("migrate_legacy"),
   exportWorkspace: (targetDir: string) => invoke<string[]>("export_workspace", { targetDir }),
   importWorkspace: (sourceDir: string) => invoke<ImportResult>("import_workspace", { sourceDir }),
+  exportBundle: (targetDir: string) => invoke<ExportBundleResult>("export_bundle", { targetDir }),
+  previewBundle: (sourceDir: string) => invoke<BundlePreview>("preview_bundle", { sourceDir }),
+  importBundle: (sourceDir: string, selection: string[]) =>
+    invoke<ImportBundleResult>("import_bundle", { sourceDir, selection }),
   listLogs: () => invoke<string[]>("list_logs"),
   readLog: (name: string) => invoke<string>("read_log", { name }),
   webview2Status: () => invoke<Webview2Status>("webview2_status"),

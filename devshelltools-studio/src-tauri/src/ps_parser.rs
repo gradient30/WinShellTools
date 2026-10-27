@@ -281,7 +281,31 @@ $result | ConvertTo-Json -Depth 8 -Compress
 }
 
 /// 批量解析 Public 目录下多个 .ps1（单次 PowerShell 进程，避免逐个启动）。
+/// 任一文件有语法错误即整体失败（工作区扫描用：坏文件视为损坏）。
 pub fn parse_public_batch(paths: &[std::path::PathBuf]) -> DstResult<Vec<(String, ParsedPsFile)>> {
+    let out = run_batch_parse(paths)?;
+    for (file_name, parsed) in &out {
+        if !parsed.parse_errors.is_empty() {
+            return Err(DstError::PsParse(format!(
+                "{} 语法错误：{}",
+                file_name,
+                parsed.parse_errors.join("; ")
+            )));
+        }
+    }
+    Ok(out)
+}
+
+/// 批量解析（容错）：单文件语法错误不中断，错误记入该文件的 parse_errors。
+/// 供同步包预览使用：外来包内可能混有坏文件，需逐个标记而非整体失败。
+pub fn parse_public_batch_lenient(
+    paths: &[std::path::PathBuf],
+) -> DstResult<Vec<(String, ParsedPsFile)>> {
+    run_batch_parse(paths)
+}
+
+/// 单次 PowerShell 进程批量解析；语法错误随各文件结果带回，不在此处判定。
+fn run_batch_parse(paths: &[std::path::PathBuf]) -> DstResult<Vec<(String, ParsedPsFile)>> {
     if paths.is_empty() {
         return Ok(vec![]);
     }
@@ -380,19 +404,12 @@ foreach ($p in @({paths_ps})) {{ $items += Get-ParsedFile -Path $p }}
 
     let mut out = vec![];
     for item in wrapped.items {
-        if !item.parse_errors.is_empty() {
-            return Err(DstError::PsParse(format!(
-                "{} 语法错误：{}",
-                item.file_name,
-                item.parse_errors.join("; ")
-            )));
-        }
         out.push((
             item.file_name,
             ParsedPsFile {
                 category: item.category,
                 functions: item.functions,
-                parse_errors: vec![],
+                parse_errors: item.parse_errors,
             },
         ));
     }

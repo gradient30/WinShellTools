@@ -89,8 +89,9 @@ cargo test --offline --test m6_acceptance -- --test-threads=1
 - `workspace.rs`：工作区 = MyDocuments（或 `DST_MY_DOCUMENTS`）下 `WindowsPowerShell\Modules\DevShellTools`；元数据在 `.studio/workspace.json`。
 - `install_mgr.rs`：软安装/卸载；每次执行前用内嵌模板覆盖工作区 `install.ps1`/`uninstall.ps1`。
 - `migrate.rs`：从旧路径合并 `Public/*.ps1`。
-- `ps_parser.rs`：调用 `powershell.exe` AST 解析；支持 `parse_public_batch` 批量解析。
+- `ps_parser.rs`：调用 `powershell.exe` AST 解析；支持 `parse_public_batch` 批量解析（另有容错版 `parse_public_batch_lenient`，供配置包预览：坏文件逐个标记不整体失败）。
 - `sync.rs`：重生成公共部分；分类列表内存 + 磁盘缓存。
+- `export.rs`：旧版平铺导出/导入 + **完整配置包**（bundle）双向同步：导出 `Public/*.ps1 + Private/Common.ps1 + ai_profiles.json（仅元数据）+ manifest.json`；导入走 预览（语法/安全校验 + 与本地比对给出 add/overwrite/same/keep_local/invalid 动作）→ 勾选确认 → 写入（UTF-8 BOM）→ 自动 `regenerate_all` → 后台同步运行时目录。目标目录必须为空/不存在。
 - `safety.rs`：静态安全扫描，规则与下方"安全边界"一致。
 - 依赖管理：刻意保持最小依赖；离线构建优先（`$env:CARGO_NET_OFFLINE="true"`）。
 
@@ -114,6 +115,8 @@ cargo test --offline --test m6_acceptance -- --test-threads=1
 **会话例外（Studio AI 助手）**：用户在 AI 对话中输入 `/danger` 可激活**本会话**最高权限（跳过 system prompt 与 AI 代码块的 `safety` 红线校验，插入前二次确认）；输入 `/safe` 或点横幅关闭可恢复默认红线（助手页用 CSS 保活，切 tab 不清危险模式）。管理页手写保存分类等路径始终走默认红线，不受 `/danger` 影响。
 
 **会话持久化**：对话自动写入工作区 `.studio/sessions/`；`/resume`（或 `/sessions`）在聊天区列出编号历史，输入数字确认恢复；`/new` 新建；`/cancel` 取消选号。选号列表为快照，编号与当次列表严格对应。
+
+**配置包红线（双向同步）**：API Key 永不随配置包导出/导入——导出只打包 AI Profile 元数据（`ai_keys/` 不读取、`key_configured` 强制置 false），导入端同样强制 false；导入的每个 `.ps1` 必须通过语法 + `safety.rs` 红线双重校验（预览一次、写入前一次），失败项不可勾选/拒写。
 
 ## 部署 / 发布
 

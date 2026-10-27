@@ -176,6 +176,13 @@
     }
   }
 
+  /** 工作区内容被工具箱（如配置包导入）改变后，刷新全局状态 */
+  async function handleWorkspaceChanged() {
+    await loadCategories();
+    if (tab === "manage") void loadManageSidebar();
+    void loadInstallStatus();
+  }
+
   $effect(() => {
     // 等分类加载完成后再做一致性校验，避免与 parse_public_batch 叠加重负载导致界面卡顿
     if (
@@ -575,7 +582,8 @@
           webview2={toolsWebview2}
           logFiles={toolsLogFiles}
           loaded={toolsLoaded}
-          onRefresh={loadToolsData} />
+          onRefresh={loadToolsData}
+          onWorkspaceChanged={handleWorkspaceChanged} />
       </div>
     </div>
     </div>

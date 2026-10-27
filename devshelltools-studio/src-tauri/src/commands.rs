@@ -526,6 +526,48 @@ pub fn import_workspace(source_dir: String) -> DstResult<export::ImportResult> {
     Ok(result)
 }
 
+// ============ 完整配置包（双向同步 / 迁移） ============
+
+/// 导出完整配置包（Public + Private/Common + AI 配置，不含 API Key）。
+#[tauri::command]
+pub async fn export_bundle(target_dir: String) -> DstResult<export::ExportBundleResult> {
+    run_blocking(move || {
+        let result = export::export_bundle(&target_dir)?;
+        logging::log(
+            logging::LogLevel::Info,
+            "bundle",
+            &format!("导出配置包：{} 个文件到 {}", result.files.len(), result.target_dir),
+        );
+        Ok(result)
+    })
+    .await
+}
+
+/// 预览配置包：逐文件校验并给出动作建议，不写入。
+#[tauri::command]
+pub async fn preview_bundle(source_dir: String) -> DstResult<export::BundlePreview> {
+    run_blocking(move || export::preview_bundle(&source_dir)).await
+}
+
+/// 按勾选导入配置包；写入后自动重生成公共部分并后台同步运行时目录。
+#[tauri::command]
+pub async fn import_bundle(
+    source_dir: String,
+    selection: Vec<String>,
+) -> DstResult<export::ImportBundleResult> {
+    run_blocking(move || {
+        let result = export::import_bundle(&source_dir, &selection)?;
+        // regenerate_all 已按导入后的状态回填分类缓存，无需再 invalidate
+        logging::log(
+            logging::LogLevel::Info,
+            "bundle",
+            &format!("导入配置包：{} 项", result.imported.len()),
+        );
+        Ok(result)
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn list_logs() -> Vec<String> { logging::list_log_files() }
 
