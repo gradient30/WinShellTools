@@ -577,6 +577,8 @@ pub fn apply_code_to_category_with_options(
     }
     // parse_ps1 已含语法错误检查，无需再 validate_syntax
     let parsed = ps_parser::parse_ps1(code)?;
+    // 返回值只统计公共命令（小写开头）——它们才是用户可敲的命令；
+    // 大写辅助函数同样会写入文件，但不作为"插入的命令"汇报
     let names: Vec<String> = parsed
         .functions
         .iter()
@@ -621,7 +623,8 @@ $te=$null;$tt=$null; $targetAst = [System.Management.Automation.Language.Parser]
 $se=$null;$st=$null; $sourceAst = [System.Management.Automation.Language.Parser]::ParseInput($sourceRaw, [ref]$st, [ref]$se)
 $srcFns = $sourceAst.FindAll({{ param($n,$d) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }}, $true)
 foreach ($fn in $srcFns) {{
-    if ($fn.Name.Substring(0,1) -cmatch '[A-Z]') {{ continue }}
+    # 全部函数一并写入（含大写内部辅助，如 Assert-Xxx）：公共命令可能依赖同块辅助函数，
+    # 丢弃会导致插入的命令运行时报错；导出列表由 sync 按小写首字母自动筛选
     $text = $fn.Extent.Text
     $existing = $targetAst.FindAll({{ param($n,$d) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $fn.Name }}, $true)
     if ($existing -and $existing.Count -gt 0) {{

@@ -106,7 +106,14 @@ export interface ValidatedCodeBlock {
   syntax_err: string;
   safety_ok: boolean;
   safety_violations: string[];
+  /** 块内全部函数（兼容保留） */
   functions: string[];
+  /** 公共命令（小写函数名）——用户在终端真正可敲的命令 */
+  exported_functions: string[];
+  /** 内部辅助函数（大写开头，随命令写入但不作为命令汇报） */
+  helper_functions: string[];
+  /** 质量验收警告：缺 SYNOPSIS/EXAMPLE、命名不规范、无公共命令、与已有命令重名 */
+  quality_warnings: string[];
   category: string | null;
 }
 
@@ -250,6 +257,12 @@ export interface FunctionTestResult {
   stderr: string;
 }
 
+/** AI 插入结果：命令名 + 首个新命令的隔离自测结果 */
+export interface ApplyAiResult {
+  names: string[];
+  self_test: FunctionTestResult | null;
+}
+
 export const api = {
   workspaceStatus: () => invoke<WorkspaceStatus>("workspace_status"),
   initWorkspace: () => invoke<string>("init_workspace"),
@@ -305,7 +318,7 @@ export const api = {
   testFunction: (fileName: string, funcName: string) =>
     invoke<FunctionTestResult>("test_function", { fileName, funcName }),
   applyAiCode: (fileName: string, code: string, message: string, dangerMode = false) =>
-    invoke<string[]>("apply_ai_code", {
+    invoke<ApplyAiResult>("apply_ai_code", {
       fileName,
       code,
       message,
@@ -341,23 +354,26 @@ export const api = {
     invoke<string[]>("fetch_ai_models_preview", {
       input: { protocol, base_url: baseUrl, key }
     }),
-  aiChat: (messages: ChatMessage[], profileId?: string, dangerMode = false) =>
+  aiChat: (messages: ChatMessage[], profileId?: string, dangerMode = false, workspaceContext?: string) =>
     invoke<string>("ai_chat", {
       messages,
       profileId: profileId ?? null,
-      dangerMode
+      dangerMode,
+      workspaceContext: workspaceContext ?? null
     }),
   /** 中断进行中的 AI 请求 */
   aiCancelChat: () => invoke<void>("ai_cancel_chat"),
   aiChatWithValidation: (
     messages: ChatMessage[],
     profileId?: string,
-    dangerMode = false
+    dangerMode = false,
+    workspaceContext?: string
   ) =>
     invoke<AiChatResult>("ai_chat_with_validation", {
       messages,
       profileId: profileId ?? null,
-      dangerMode
+      dangerMode,
+      workspaceContext: workspaceContext ?? null
     }),
   listChatSessions: () => invoke<ResumeListResult>("list_chat_sessions"),
   loadChatSession: (id: string) => invoke<ChatSession>("load_chat_session", { id }),

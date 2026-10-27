@@ -1,10 +1,15 @@
 #![allow(dead_code)]
 
+mod common;
+
 #[cfg(test)]
 mod tests {
+    use crate::common::IsolatedProfile;
     use devshelltools_studio_lib::ai_config;
+    use devshelltools_studio_lib::function_edit;
     use devshelltools_studio_lib::ps_parser;
     use devshelltools_studio_lib::safety;
+    use devshelltools_studio_lib::workspace;
 
     /// 验收1：AI 配置默认值 + 持久化
     #[test]
@@ -139,5 +144,43 @@ function nohelp {
         let parsed = ps_parser::parse_ps1(code).expect("解析");
         assert_eq!(parsed.functions.len(), 1);
         assert!(parsed.functions[0].synopsis.is_empty(), "缺 synopsis 应为空");
+    }
+
+    /// 验收7：AI 块内大写辅助函数随公共命令一并写入（此前被丢弃导致命令运行时报错）；
+    /// 返回值只汇报公共命令名
+    #[test]
+    fn m3_apply_keeps_helper_functions() {
+        let _g = IsolatedProfile::new("m3-apply-helper");
+        workspace::init_from_template().expect("init");
+        let code = r#"function Assert-FakeTool {
+    Assert-DstCommand "git"
+}
+
+function faketool {
+<#
+.SYNOPSIS
+测试辅助函数随命令保留。
+.EXAMPLE
+faketool
+#>
+    [CmdletBinding()] param()
+    Assert-FakeTool
+    Write-Output "ok"
+}
+"#;
+        let names = function_edit::apply_code_to_category("Files.ps1", code).expect("apply");
+        assert_eq!(names, vec!["faketool".to_string()], "只汇报公共命令名");
+        let content = workspace::read_file("Public/Files.ps1").unwrap();
+        assert!(
+            content.contains("function Assert-FakeTool"),
+            "辅助函数应写入分类文件，否则 faketool 调用会失败"
+        );
+        assert!(content.contains("function faketool"));
+        // 辅助函数不得进入导出清单
+        let psd1 = workspace::read_file("DevShellTools.psd1").unwrap();
+        assert!(psd1.contains("'faketool'"), "公共命令应入导出清单");
+        assert!(!psd1.contains("Assert-FakeTool"), "辅助函数不入导出清单");
+        // 等待后台运行时同步线程在隔离 guard 内完成
+        std::thread::sleep(std::time::Duration::from_millis(800));
     }
 }

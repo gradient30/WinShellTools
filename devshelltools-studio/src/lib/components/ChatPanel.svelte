@@ -411,6 +411,22 @@
     return false;
   }
 
+  /** 注入当前工作区真实命令清单，约束 AI：禁止重名、只引用真实存在的命令 */
+  function buildWorkspaceContext(): string {
+    if (!categories.length) return "";
+    const lines = categories.map((c) => {
+      const cmds = c.functions
+        .filter((f) => /^[a-z]/.test(f.name))
+        .map((f) => f.name)
+        .join(", ");
+      return `${c.category.name}: ${cmds || "(无)"}`;
+    });
+    return [
+      "【当前工作区命令清单】（这些是真实可用的用户命令名；生成新命令时禁止与之重名，引用时只用清单内的名称）：",
+      ...lines
+    ].join("\n");
+  }
+
   async function sendPrompt(text: string, opts?: { replaceAll?: boolean }) {
     const trimmed = text.trim();
     if (!trimmed || loading || !profileId) return;
@@ -436,7 +452,12 @@
 
     const apiMessages = toApiMessages(messages);
     try {
-      const result = await api.aiChatWithValidation(apiMessages, profileId, dangerMode);
+      const result = await api.aiChatWithValidation(
+        apiMessages,
+        profileId,
+        dangerMode,
+        buildWorkspaceContext()
+      );
       const assistantIdx = messages.length;
       messages = [
         ...messages,
@@ -553,7 +574,9 @@
     if (!m || m.role !== "user") return;
     rewindBackup = {
       messages: messages.map((x) => ({ ...x })),
-      replyCodeBlocks: structuredClone(replyCodeBlocks),
+      // $state 深层对象是 Proxy，structuredClone 会抛 DataCloneError 导致回退静默失效；
+      // $state.snapshot 返回脱离代理的深拷贝
+      replyCodeBlocks: $state.snapshot(replyCodeBlocks),
       targetFiles: { ...targetFiles },
       expandedBlocks: [...expandedBlocks],
       input
@@ -634,7 +657,17 @@
   }
 
   function canApply(block: ValidatedCodeBlock): boolean {
-    return block.syntax_ok && block.safety_ok && block.functions.length > 0;
+    // 只有公共命令（小写函数）可插入；仅辅助函数的块插入必然失败
+    const exported = block.exported_functions ?? block.functions;
+    return block.syntax_ok && block.safety_ok && exported.length > 0;
+  }
+
+  /** 标题：公共命令优先；辅助函数单独标注，避免误当作用户命令 */
+  function blockTitle(block: ValidatedCodeBlock): string {
+    const exported = block.exported_functions ?? block.functions;
+    const helpers = block.helper_functions ?? [];
+    const base = exported.length > 0 ? exported.join(", ") : "（无公共命令）";
+    return helpers.length > 0 ? `${base}（+${helpers.length} 辅助）` : base;
   }
 
   function scriptIdentity(block: ValidatedCodeBlock): string | null {
@@ -878,7 +911,7 @@
                 {@const key = `${i}-${bi}`}
                 {@const latest = isLatestScriptBlock(block, key)}
                 {@const unchanged = latest && isUnchangedFromPrevious(block, i, bi)}
-                {@const title = block.functions.join(", ") || "代码块"}
+                {@const title = blockTitle(block)}
                 {#if !latest}
                   <div class="border border-dst-border rounded-lg overflow-hidden opacity-70">
                     <div class="flex items-center justify-between px-3 py-1.5 bg-dst-surface gap-2">
@@ -928,6 +961,10 @@
                         {#if !block.syntax_ok || !block.safety_ok}
                           <p class="text-xs text-dst-warning-fg">
                             {[block.syntax_err, ...block.safety_violations].filter(Boolean).join("；") || "未通过校验"}
+                          </p>
+                        {:else if (block.quality_warnings ?? []).length > 0}
+                          <p class="text-xs text-dst-warning-fg">
+                            ⚠ 质量提醒：{block.quality_warnings.join("；")}
                           </p>
                         {/if}
                         <div class="flex items-center gap-2">

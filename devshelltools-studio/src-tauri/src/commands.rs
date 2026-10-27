@@ -203,16 +203,31 @@ pub async fn test_function(file_name: String, func_name: String) -> DstResult<Fu
     run_blocking(move || function_edit::test_function(&file_name, &func_name)).await
 }
 
+/// AI 插入结果：命令名 + 首个新命令的隔离自测（example 试跑）结果。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ApplyAiResult {
+    /// 插入的公共命令名（小写函数；大写辅助函数随写但不计入）
+    pub names: Vec<String>,
+    /// None = 无可自测的命令；ok=false 时命令已插入但 example 试跑失败，提示用户检查
+    pub self_test: Option<FunctionTestResult>,
+}
+
 #[tauri::command]
 pub async fn apply_ai_code(
     file_name: String,
     code: String,
     _message: String,
     danger_mode: Option<bool>,
-) -> DstResult<Vec<String>> {
+) -> DstResult<ApplyAiResult> {
     let danger = danger_mode.unwrap_or(false);
     run_blocking(move || {
-        function_edit::apply_code_to_category_with_options(&file_name, &code, danger)
+        let names = function_edit::apply_code_to_category_with_options(&file_name, &code, danger)?;
+        // 插入后自动验收：隔离进程试跑首个新命令的 example，保证用户拿到即可用
+        let self_test = match names.first() {
+            Some(first) => function_edit::test_function(&file_name, first).ok(),
+            None => None,
+        };
+        Ok(ApplyAiResult { names, self_test })
     })
     .await
 }
@@ -354,6 +369,7 @@ async fn ai_chat_inner(
     messages: Vec<ChatMessage>,
     profile_id: Option<String>,
     danger_mode: bool,
+    workspace_context: Option<String>,
 ) -> DstResult<String> {
     let config = ai_config::load_config_for_profile(profile_id.as_deref())?;
     let id = profile_id
@@ -361,8 +377,14 @@ async fn ai_chat_inner(
         .or_else(|| ai_config::load_profiles_store().ok()?.default_profile_id)
         .ok_or_else(|| DstError::Other("未选择 AI Profile".into()))?;
     let api_key = ai_config::load_key_for_profile(&id)?;
-    let events =
-        ai_client::chat_stream_with_options(&config, &api_key, messages, danger_mode).await?;
+    let events = ai_client::chat_stream_with_options(
+        &config,
+        &api_key,
+        messages,
+        danger_mode,
+        workspace_context.as_deref(),
+    )
+    .await?;
     let full: String = events
         .iter()
         .filter(|e| e.kind == "delta")
@@ -381,8 +403,9 @@ pub async fn ai_chat(
     messages: Vec<ChatMessage>,
     profile_id: Option<String>,
     danger_mode: Option<bool>,
+    workspace_context: Option<String>,
 ) -> DstResult<String> {
-    ai_chat_inner(messages, profile_id, danger_mode.unwrap_or(false)).await
+    ai_chat_inner(messages, profile_id, danger_mode.unwrap_or(false), workspace_context).await
 }
 
 /// 停止当前进行中的 AI 流式请求（前端「停止」按钮）。
@@ -396,23 +419,67 @@ pub async fn ai_chat_with_validation(
     messages: Vec<ChatMessage>,
     profile_id: Option<String>,
     danger_mode: Option<bool>,
+    workspace_context: Option<String>,
 ) -> DstResult<AiChatResult> {
     let danger = danger_mode.unwrap_or(false);
-    let reply = ai_chat_inner(messages, profile_id, danger).await?;
+    let reply = ai_chat_inner(messages, profile_id, danger, workspace_context).await?;
     let code_blocks = ai_config::extract_code_blocks(&reply);
     run_blocking(move || {
+        // 现有公共命令清单（走缓存，命中零成本）：用于重名提示
+        let existing: Vec<String> = sync::scan_categories_cached()
+            .unwrap_or_default()
+            .iter()
+            .flat_map(|c| {
+                c.functions
+                    .iter()
+                    .filter(|f| sync::is_exported(&f.name))
+                    .map(|f| f.name.clone())
+            })
+            .collect();
         let mut validated = vec![];
         for code in &code_blocks {
-            // 一次 parse：同时得到语法结果与函数名，避免 validate×2 + parse
-            let (syntax_ok, syntax_err, functions, category) = match ps_parser::parse_ps1(code) {
+            // 一次 parse：同时得到语法结果、函数元数据与分类，避免 validate×2 + parse
+            let mut exported: Vec<String> = vec![];
+            let mut helpers: Vec<String> = vec![];
+            let mut functions: Vec<String> = vec![];
+            let mut category: Option<String> = None;
+            let mut warnings: Vec<String> = vec![];
+            let (syntax_ok, syntax_err) = match ps_parser::parse_ps1(code) {
                 Ok(p) if p.parse_errors.is_empty() => {
-                    let fns: Vec<String> = p.functions.iter().map(|f| f.name.clone()).collect();
-                    let cat = p.category.as_ref().map(|c| c.name.clone());
-                    (true, String::new(), fns, cat)
+                    category = p.category.as_ref().map(|c| c.name.clone());
+                    for f in &p.functions {
+                        functions.push(f.name.clone());
+                        let is_public = f.name.chars().next().map(|c| c.is_ascii_lowercase()).unwrap_or(false)
+                            && f.name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+                        if is_public {
+                            exported.push(f.name.clone());
+                        } else if f.name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false) {
+                            helpers.push(f.name.clone());
+                        } else {
+                            // 小写开头但含非法字符（如连字符）——按名字规范提示
+                            exported.push(f.name.clone());
+                            warnings.push(format!("{}：命令名应仅含小写字母和数字", f.name));
+                        }
+                        if f.synopsis.trim().is_empty() {
+                            warnings.push(format!("{} 缺少 .SYNOPSIS", f.name));
+                        }
+                        if f.first_example.trim().is_empty() {
+                            warnings.push(format!("{} 缺少 .EXAMPLE", f.name));
+                        }
+                    }
+                    (true, String::new())
                 }
-                Ok(p) => (false, p.parse_errors.join("; "), vec![], None),
-                Err(e) => (false, e.to_string(), vec![], None),
+                Ok(p) => (false, p.parse_errors.join("; ")),
+                Err(e) => (false, e.to_string()),
             };
+            if syntax_ok && exported.is_empty() {
+                warnings.push("代码块无公共命令（小写函数名），无法插入分类".into());
+            }
+            for n in &exported {
+                if existing.iter().any(|e| e.eq_ignore_ascii_case(n)) {
+                    warnings.push(format!("{n} 与已有命令重名，插入将覆盖同名函数"));
+                }
+            }
             let safety_report = safety::check_with_options(code, danger).unwrap_or(
                 safety::SafetyReport {
                     ok: false,
@@ -426,6 +493,9 @@ pub async fn ai_chat_with_validation(
                 safety_ok: safety_report.ok,
                 safety_violations: safety_report.violations,
                 functions,
+                exported_functions: exported,
+                helper_functions: helpers,
+                quality_warnings: warnings,
                 category,
             });
         }
@@ -438,7 +508,22 @@ pub async fn ai_chat_with_validation(
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct ValidatedCodeBlock { pub code: String, pub syntax_ok: bool, pub syntax_err: String, pub safety_ok: bool, pub safety_violations: Vec<String>, pub functions: Vec<String>, pub category: Option<String> }
+pub struct ValidatedCodeBlock {
+    pub code: String,
+    pub syntax_ok: bool,
+    pub syntax_err: String,
+    pub safety_ok: bool,
+    pub safety_violations: Vec<String>,
+    /// 块内全部函数（兼容保留）
+    pub functions: Vec<String>,
+    /// 公共命令（小写函数名）——用户在终端真正可敲的命令
+    pub exported_functions: Vec<String>,
+    /// 内部辅助函数（大写开头，随命令一并写入但不作为命令汇报）
+    pub helper_functions: Vec<String>,
+    /// 质量验收警告：缺 SYNOPSIS/EXAMPLE、命名不规范、无公共命令、与已有命令重名
+    pub quality_warnings: Vec<String>,
+    pub category: Option<String>,
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AiChatResult { pub reply: String, pub code_blocks: Vec<ValidatedCodeBlock> }

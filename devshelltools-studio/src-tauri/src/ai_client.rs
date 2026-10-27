@@ -45,19 +45,30 @@ pub async fn chat_stream(
     api_key: &str,
     messages: Vec<ChatMessage>,
 ) -> DstResult<Vec<StreamEvent>> {
-    chat_stream_with_options(config, api_key, messages, false).await
+    chat_stream_with_options(config, api_key, messages, false, None).await
 }
 
+/// `extra_system` 追加到固定 system prompt 之后（如工作区现有命令清单），
+/// OpenAI / Anthropic 两协议统一走同一条 system 消息。
 pub async fn chat_stream_with_options(
     config: &AiConfig,
     api_key: &str,
     messages: Vec<ChatMessage>,
     danger_mode: bool,
+    extra_system: Option<&str>,
 ) -> DstResult<Vec<StreamEvent>> {
     reset_chat_cancel();
+    let mut system_content = ai_config::system_prompt_with_options(danger_mode);
+    if let Some(extra) = extra_system {
+        let trimmed = extra.trim();
+        if !trimmed.is_empty() {
+            system_content.push_str("\n\n");
+            system_content.push_str(trimmed);
+        }
+    }
     let mut full_messages = vec![ChatMessage {
         role: "system".into(),
-        content: ai_config::system_prompt_with_options(danger_mode),
+        content: system_content,
     }];
     full_messages.extend(messages);
 

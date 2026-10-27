@@ -269,7 +269,7 @@
 
   async function handleApplyCode(code: string, fileName: string, dangerMode = false) {
     try {
-      const names = await withBusy(`正在插入到 ${fileName}…`, async () => {
+      const result = await withBusy(`正在插入到 ${fileName}…`, async () => {
         return api.applyAiCode(
           fileName,
           code,
@@ -277,14 +277,19 @@
           dangerMode
         );
       });
+      const names = result.names;
       selectedFileName = fileName;
       await loadCategories();
       void loadManageSidebar();
       void loadInstallStatus();
+      // 插入后自动自测：通过/失败给用户明确反馈，失败不回滚（语法安全已过，运行问题提示检查）
+      const test = result.self_test;
+      const testNote = !test ? "" : test.ok ? "，自测通过" : `，自测失败：${(test.stderr || "").split("\n").find((l) => l.trim()) ?? "无输出"}`.slice(0, 120);
+      const tone = test && !test.ok ? "warning" : dangerMode ? "info" : "success";
       showToast(
-        dangerMode ? `已插入 ${names.join(", ")}（危险模式）` : `已插入 ${names.join(", ")}`,
-        dangerMode ? "info" : "success",
-        3500
+        `已插入 ${names.join(", ")}${testNote}${dangerMode ? "（危险模式）" : ""}`,
+        tone,
+        test && !test.ok ? 6000 : 3500
       );
     } catch (e) {
       errorMsg.set(String(e));

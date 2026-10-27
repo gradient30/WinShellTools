@@ -28,6 +28,13 @@ pub struct StoredCodeBlock {
     pub safety_ok: bool,
     pub safety_violations: Vec<String>,
     pub functions: Vec<String>,
+    /// 公共命令（小写函数名）；旧会话缺省回退为 functions
+    #[serde(default)]
+    pub exported_functions: Vec<String>,
+    #[serde(default)]
+    pub helper_functions: Vec<String>,
+    #[serde(default)]
+    pub quality_warnings: Vec<String>,
     pub category: Option<String>,
 }
 
