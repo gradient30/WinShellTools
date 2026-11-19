@@ -69,17 +69,30 @@ psb
 function reload {
 <#
 .SYNOPSIS
-重新加载当前 PowerShell Profile。
+重新加载当前 PowerShell Profile（含 Import-Module DevShellTools -Force）。
+.DESCRIPTION
+Profile 内的 Import-Module DevShellTools -Force 会卸载并重载本模块（进程级生效，
+命令改动即刻可用）。重载期间本函数所属模块被替换，因此本函数只使用内置
+Write-Host 输出，不得调用 Write-Dst* 等模块内部函数。Profile 中的自定义
+函数/别名在函数作用域执行后不会保留（PowerShell 限制），如需完整生效请
+直接执行：. $PROFILE
 .EXAMPLE
 reload
 #>
     [CmdletBinding()]
     param()
-    if (Test-Path -LiteralPath $PROFILE) {
+    if (-not (Test-Path -LiteralPath $PROFILE)) {
+        Write-Host "[警告] Profile 不存在：$PROFILE" -ForegroundColor Yellow
+        return
+    }
+    Write-Host "[信息] 正在重新加载：$PROFILE" -ForegroundColor Cyan
+    try {
         . $PROFILE
-        Write-DstOk "已重新加载：$PROFILE"
-    } else {
-        Write-DstWarn "Profile 不存在：$PROFILE"
+        # 此处模块可能已被 -Force 重载，严禁调用 Write-Dst* 等模块函数
+        Write-Host "[成功] 已重新加载：$PROFILE" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "[失败] 重载出错：$_" -ForegroundColor Red
     }
 }
 
