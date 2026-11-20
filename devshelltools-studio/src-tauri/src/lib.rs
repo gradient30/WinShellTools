@@ -9,6 +9,7 @@ pub mod export;
 pub mod function_edit;
 pub mod init_progress;
 pub mod install_mgr;
+pub mod key_store;
 pub mod logging;
 pub mod migrate;
 pub mod process_util;

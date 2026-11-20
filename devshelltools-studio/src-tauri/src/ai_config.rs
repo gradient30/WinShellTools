@@ -1,4 +1,5 @@
 use crate::error::{DstError, DstResult};
+use crate::key_store;
 use crate::workspace;
 use crate::workspace_path::validate_component;
 use serde::{Deserialize, Serialize};
@@ -100,10 +101,6 @@ fn profiles_file() -> std::path::PathBuf {
     workspace::studio_dir().join("ai_profiles.json")
 }
 
-fn keys_dir() -> std::path::PathBuf {
-    workspace::studio_dir().join("ai_keys")
-}
-
 /// 配置文件路径：工作区 .studio/ai_config.json（旧版，迁移后保留只读）
 fn config_file() -> std::path::PathBuf {
     workspace::studio_dir().join("ai_config.json")
@@ -112,11 +109,6 @@ fn config_file() -> std::path::PathBuf {
 /// 凭证文件路径：工作区 .studio/ai_key.txt（旧版）
 fn key_file() -> std::path::PathBuf {
     workspace::studio_dir().join("ai_key.txt")
-}
-
-fn key_file_for(id: &str) -> DstResult<std::path::PathBuf> {
-    validate_component(id, "AI Profile ID")?;
-    Ok(keys_dir().join(format!("{id}.txt")))
 }
 
 fn migrate_legacy_if_needed() -> DstResult<()> {
@@ -170,7 +162,7 @@ pub fn load_profiles_store() -> DstResult<AiProfilesStore> {
     let mut store: AiProfilesStore = serde_json::from_str(&raw)?;
     let mut bumped = false;
     for p in &mut store.profiles {
-        p.key_configured = key_file_for(&p.id).is_ok_and(|path| path.exists());
+        p.key_configured = key_store::has_secret(&p.id);
         // 旧默认 2048/8192 在 DeepSeek 思考模式下易导致“只思考无正文”；抬到 16384
         if p.max_tokens > 0 && p.max_tokens < 16384 {
             let is_deepseek = p.base_url.to_lowercase().contains("deepseek")
@@ -222,7 +214,7 @@ pub fn save_profile(profile: AiProfile, key: Option<&str>) -> DstResult<AiProfil
         }
     }
     let mut p = profile;
-    p.key_configured = key_file_for(&p.id)?.exists();
+    p.key_configured = key_store::has_secret(&p.id);
     if let Some(existing) = store.profiles.iter_mut().find(|x| x.id == p.id) {
         *existing = p.clone();
     } else {
@@ -239,7 +231,7 @@ pub fn delete_profile(id: &str) -> DstResult<()> {
     validate_component(id, "AI Profile ID")?;
     let mut store = load_profiles_store()?;
     store.profiles.retain(|p| p.id != id);
-    let _ = std::fs::remove_file(key_file_for(id)?);
+    key_store::delete_secret(id)?;
     if store.default_profile_id.as_deref() == Some(id) {
         store.default_profile_id = store.profiles.first().map(|p| p.id.clone());
     }
@@ -257,21 +249,11 @@ pub fn load_config_for_profile(id: Option<&str>) -> DstResult<AiConfig> {
 }
 
 pub fn load_key_for_profile(id: &str) -> DstResult<String> {
-    let path = key_file_for(id)?;
-    if !path.exists() {
-        return Err(DstError::Other("未配置 API Key".into()));
-    }
-    let key = std::fs::read_to_string(&path)?.trim().to_string();
-    if key.is_empty() {
-        return Err(DstError::Other("API Key 为空".into()));
-    }
-    Ok(key)
+    key_store::load_secret(id)
 }
 
 pub fn save_key_for_profile(id: &str, key: &str) -> DstResult<()> {
-    std::fs::create_dir_all(keys_dir())?;
-    std::fs::write(key_file_for(id)?, key.trim())?;
-    Ok(())
+    key_store::save_secret(id, key.trim())
 }
 
 /// 读取 AI 配置（默认 Profile）。
@@ -293,7 +275,7 @@ pub fn save_config(cfg: &AiConfig) -> DstResult<()> {
         .map(|p| p.name.clone())
         .unwrap_or_else(|| "默认配置".into());
     let mut profile = AiProfile::from_config(id.clone(), name, cfg);
-    profile.key_configured = key_file_for(&id)?.exists();
+    profile.key_configured = key_store::has_secret(&id);
     if let Some(existing) = store.profiles.iter_mut().find(|p| p.id == id) {
         profile.key_configured = existing.key_configured || profile.key_configured;
         *existing = profile;
@@ -328,7 +310,7 @@ pub fn is_configured() -> bool {
         .map(|s| {
             s.profiles
                 .iter()
-                .any(|p| key_file_for(&p.id).is_ok_and(|path| path.exists()))
+                .any(|p| key_store::has_secret(&p.id))
         })
         .unwrap_or(false)
 }

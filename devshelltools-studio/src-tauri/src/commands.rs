@@ -272,7 +272,7 @@ pub fn save_ai_key(key: String) -> DstResult<()> { ai_config::save_key(&key) }
 pub fn get_ai_key_status() -> DstResult<AiKeyStatus> {
     match ai_config::load_key() {
         Ok(k) => {
-            let masked = if k.len() > 8 { format!("{}...{}", &k[..4], &k[k.len()-4..]) } else { "****".into() };
+            let masked = crate::key_store::mask_secret_for_display(&k);
             Ok(AiKeyStatus { configured: true, masked })
         }
         Err(_) => Ok(AiKeyStatus { configured: false, masked: String::new() }),
