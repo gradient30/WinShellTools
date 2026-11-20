@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri",
     "check:security": "node scripts/check-security-config.mjs"

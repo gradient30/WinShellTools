@@ -1,5 +1,5 @@
-use crate::error::{DstError, DstResult};
 use crate::ai_budget::{cap_output_tokens, validate_endpoint, MAX_OUTPUT_TOKENS};
+use crate::error::{DstError, DstResult};
 use crate::key_store;
 use crate::workspace;
 use crate::workspace_path::validate_component;
@@ -168,7 +168,13 @@ pub fn load_profiles_store() -> DstResult<AiProfilesStore> {
         if p.max_tokens > 0 && p.max_tokens < 16384 {
             let is_deepseek = p.base_url.to_lowercase().contains("deepseek")
                 || p.model.to_lowercase().contains("deepseek");
-            let new_cap = if is_deepseek { 16384 } else if p.max_tokens <= 2048 { 8192 } else { p.max_tokens };
+            let new_cap = if is_deepseek {
+                16384
+            } else if p.max_tokens <= 2048 {
+                8192
+            } else {
+                p.max_tokens
+            };
             if new_cap > p.max_tokens {
                 p.max_tokens = new_cap;
                 bumped = true;
@@ -267,10 +273,7 @@ pub fn load_config() -> DstResult<AiConfig> {
 pub fn save_config(cfg: &AiConfig) -> DstResult<()> {
     validate_config_fields(cfg)?;
     let mut store = load_profiles_store()?;
-    let id = store
-        .default_profile_id
-        .clone()
-        .unwrap_or_else(uuid_simple);
+    let id = store.default_profile_id.clone().unwrap_or_else(uuid_simple);
     let name = store
         .profiles
         .iter()
@@ -335,11 +338,7 @@ pub fn save_key(key: &str) -> DstResult<()> {
 /// 是否已配置（任一 Profile 有 key）。
 pub fn is_configured() -> bool {
     load_profiles_store()
-        .map(|s| {
-            s.profiles
-                .iter()
-                .any(|p| key_store::has_secret(&p.id))
-        })
+        .map(|s| s.profiles.iter().any(|p| key_store::has_secret(&p.id)))
         .unwrap_or(false)
 }
 
@@ -436,7 +435,8 @@ pub fn extract_code_blocks(text: &str) -> Vec<String> {
     let mut in_block = false;
     let mut current = String::new();
     for line in text.lines() {
-        if line.trim_start().starts_with("```powershell") || line.trim_start().starts_with("```ps1") {
+        if line.trim_start().starts_with("```powershell") || line.trim_start().starts_with("```ps1")
+        {
             in_block = true;
             current.clear();
             continue;

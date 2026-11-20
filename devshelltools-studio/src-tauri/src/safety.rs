@@ -100,8 +100,7 @@ fn check_git(command: &PsCommand, violations: &mut Vec<String>) {
     };
     let args = &command.args[index + 1..];
     match subcommand.as_str() {
-        "push" if args.iter().any(|arg| force_push_flag(arg)) =>
-        {
+        "push" if args.iter().any(|arg| force_push_flag(arg)) => {
             violations.push("禁止 git push --force / --force-with-lease".into());
         }
         "reset" if has_parameter(args, "hard", '\0') => {
@@ -119,7 +118,10 @@ fn git_subcommand(args: &[String]) -> Option<(String, usize)> {
     let mut index = 0;
     while index < args.len() {
         let arg = &args[index];
-        if takes_value.iter().any(|value| arg.eq_ignore_ascii_case(value)) {
+        if takes_value
+            .iter()
+            .any(|value| arg.eq_ignore_ascii_case(value))
+        {
             index += 2;
             continue;
         }

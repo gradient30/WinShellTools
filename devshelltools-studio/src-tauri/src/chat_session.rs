@@ -93,13 +93,12 @@ fn ensure_dir() -> DstResult<()> {
 
 fn atomic_write(path: &Path, data: &[u8]) -> DstResult<()> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| DstError::Other(format!("创建目录失败：{e}")))?;
+        fs::create_dir_all(parent).map_err(|e| DstError::Other(format!("创建目录失败：{e}")))?;
     }
     let tmp = path.with_extension("json.tmp");
     {
-        let mut f = fs::File::create(&tmp)
-            .map_err(|e| DstError::Other(format!("写临时文件失败：{e}")))?;
+        let mut f =
+            fs::File::create(&tmp).map_err(|e| DstError::Other(format!("写临时文件失败：{e}")))?;
         f.write_all(data)
             .map_err(|e| DstError::Other(format!("写入失败：{e}")))?;
         f.sync_all().ok();

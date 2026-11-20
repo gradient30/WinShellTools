@@ -16,8 +16,7 @@ fn rapid_sync_requests_finish_at_latest_generation() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     loop {
         let status = runtime_sync::sync_status();
-        if status.state == runtime_sync::RuntimeSyncState::Succeeded
-            && status.generation == latest
+        if status.state == runtime_sync::RuntimeSyncState::Succeeded && status.generation == latest
         {
             break;
         }

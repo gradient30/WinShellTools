@@ -63,10 +63,7 @@ pub fn read_template_file(rel: &str) -> Option<&'static str> {
         ("Public/Network.ps1", NETWORK_PS1),
         ("Public/Help.ps1", HELP_PS1),
     ];
-    pairs
-        .iter()
-        .find(|(r, _)| *r == rel)
-        .map(|(_, c)| *c)
+    pairs.iter().find(|(r, _)| *r == rel).map(|(_, c)| *c)
 }
 
 #[cfg(test)]

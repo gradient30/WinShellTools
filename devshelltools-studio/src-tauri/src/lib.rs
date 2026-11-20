@@ -1,5 +1,5 @@
-pub mod ai_client;
 pub mod ai_budget;
+pub mod ai_client;
 pub mod ai_config;
 pub mod ai_presets;
 pub mod ai_types;
@@ -15,8 +15,8 @@ pub mod install_mgr;
 pub mod key_store;
 pub mod logging;
 pub mod migrate;
-pub mod process_util;
 pub mod process_runner;
+pub mod process_util;
 pub mod ps_parser;
 pub mod ps_render;
 pub mod pwsh;

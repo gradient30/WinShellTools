@@ -4,7 +4,10 @@ use crate::workspace;
 
 /// 判断函数名是否应导出：首字母小写为公共命令，首字母大写为内部辅助。
 fn is_exported_name(name: &str) -> bool {
-    name.chars().next().map(|c| c.is_lowercase()).unwrap_or(false)
+    name.chars()
+        .next()
+        .map(|c| c.is_lowercase())
+        .unwrap_or(false)
 }
 
 /// 一致性校验结果。
@@ -28,6 +31,7 @@ pub struct ConsistencyReport {
 /// 2. .psd1 FunctionsToExport
 /// 3. .psm1 exports
 /// 4. Help.ps1 HelpData 中的命令
+///
 /// 四者应完全一致（除 dsh/Show-* 等非分类函数）。
 pub fn check() -> DstResult<ConsistencyReport> {
     let mut errors = vec![];
@@ -39,8 +43,18 @@ pub fn check() -> DstResult<ConsistencyReport> {
     let extras = sync::scan_extra_functions()?;
     let actual: Vec<String> = cats
         .iter()
-        .flat_map(|c| c.functions.iter().filter(|f| is_exported_name(&f.name)).map(|f| f.name.clone()))
-        .chain(extras.iter().filter(|f| is_exported_name(&f.name)).map(|f| f.name.clone()))
+        .flat_map(|c| {
+            c.functions
+                .iter()
+                .filter(|f| is_exported_name(&f.name))
+                .map(|f| f.name.clone())
+        })
+        .chain(
+            extras
+                .iter()
+                .filter(|f| is_exported_name(&f.name))
+                .map(|f| f.name.clone()),
+        )
         .collect::<Vec<_>>()
         .into_iter()
         .collect();
@@ -82,13 +96,21 @@ pub fn check() -> DstResult<ConsistencyReport> {
         if !missing_in_psd1.is_empty() {
             errors.push(format!(
                 "psd1 缺少导出：{}",
-                missing_in_psd1.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                missing_in_psd1
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
         if !extra_in_psd1.is_empty() {
             errors.push(format!(
                 "psd1 多余导出：{}",
-                extra_in_psd1.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                extra_in_psd1
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
     }
@@ -106,13 +128,21 @@ pub fn check() -> DstResult<ConsistencyReport> {
         if !missing_in_psm1.is_empty() {
             errors.push(format!(
                 "psm1 缺少导出：{}",
-                missing_in_psm1.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                missing_in_psm1
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
         if !extra_in_psm1.is_empty() {
             errors.push(format!(
                 "psm1 多余导出：{}",
-                extra_in_psm1.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                extra_in_psm1
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
     }
@@ -137,7 +167,10 @@ pub fn check() -> DstResult<ConsistencyReport> {
     for c in &cats {
         for f in c.functions.iter().filter(|f| is_exported_name(&f.name)) {
             if f.synopsis.is_empty() {
-                warnings.push(format!("函数 {}.{} 缺少 .SYNOPSIS", c.category.name, f.name));
+                warnings.push(format!(
+                    "函数 {}.{} 缺少 .SYNOPSIS",
+                    c.category.name, f.name
+                ));
             }
         }
     }

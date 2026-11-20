@@ -11,7 +11,10 @@ fn git_global_options_cannot_bypass_hard_reset_policy() {
 #[test]
 fn dynamic_command_invocation_is_rejected() {
     let report = safety::check("$cmd = 'git'; & $cmd reset --hard").expect("safety");
-    assert!(!report.ok, "dynamic command expressions require danger mode");
+    assert!(
+        !report.ok,
+        "dynamic command expressions require danger mode"
+    );
 }
 
 #[test]

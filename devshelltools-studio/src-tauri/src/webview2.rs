@@ -21,7 +21,7 @@ pub fn check_webview2() -> DstResult<Webview2Status> {
 
     // 检查注册表（通过 reg query）
     let version = check_registry_version()
-        .or_else(|| check_installed_path())
+        .or_else(check_installed_path)
         .unwrap_or_default();
 
     Ok(Webview2Status {
@@ -101,7 +101,13 @@ fn check_installed_path() -> Option<String> {
                 if e.path().is_dir() {
                     let name = e.file_name().to_string_lossy().to_string();
                     // 版本号格式如 120.0.2651.174
-                    if name.contains('.') && name.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                    if name.contains('.')
+                        && name
+                            .chars()
+                            .next()
+                            .map(|c| c.is_ascii_digit())
+                            .unwrap_or(false)
+                    {
                         return Some(name);
                     }
                 }

@@ -46,7 +46,10 @@ impl WorkspacePath {
         let root = canonical_root()?;
         let candidate = root.join(&self.relative);
         let resolved = candidate.canonicalize().map_err(|error| {
-            DstError::Other(format!("工作区路径不存在：{}（{error}）", candidate.display()))
+            DstError::Other(format!(
+                "工作区路径不存在：{}（{error}）",
+                candidate.display()
+            ))
         })?;
         ensure_within(&root, &resolved)?;
         Ok(resolved)
@@ -79,7 +82,9 @@ pub fn validate_component(value: &str, kind: &str) -> DstResult<()> {
         || value.contains(':')
         || value.ends_with('.')
         || value.ends_with(' ')
-        || value.chars().any(|ch| ch.is_control() || matches!(ch, '<' | '>' | '"' | '|' | '?' | '*'))
+        || value
+            .chars()
+            .any(|ch| ch.is_control() || matches!(ch, '<' | '>' | '"' | '|' | '?' | '*'))
     {
         return Err(DstError::Other(format!("{kind}名称非法：{value}")));
     }

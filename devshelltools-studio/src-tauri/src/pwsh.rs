@@ -37,12 +37,21 @@ pub fn check_pwsh() -> PwshStatus {
                 Ok(o) if o.status.success() => {
                     let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
                     if v.is_empty() {
-                        PwshStatus { pwsh_found: false, version: String::new() }
+                        PwshStatus {
+                            pwsh_found: false,
+                            version: String::new(),
+                        }
                     } else {
-                        PwshStatus { pwsh_found: true, version: v }
+                        PwshStatus {
+                            pwsh_found: true,
+                            version: v,
+                        }
                     }
                 }
-                _ => PwshStatus { pwsh_found: false, version: String::new() },
+                _ => PwshStatus {
+                    pwsh_found: false,
+                    version: String::new(),
+                },
             }
         })
         .clone()

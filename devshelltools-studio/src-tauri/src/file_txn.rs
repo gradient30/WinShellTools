@@ -116,7 +116,12 @@ impl FileTransaction {
         for index in 0..journal.entries.len() {
             let result = apply_entry(&mut journal.entries[index]);
             if let Err(error) = result {
-                return fail_and_rollback(&self.journal_path, &self.transaction_dir, journal, error);
+                return fail_and_rollback(
+                    &self.journal_path,
+                    &self.transaction_dir,
+                    journal,
+                    error,
+                );
             }
             write_journal(&self.journal_path, &journal)?;
             #[cfg(test)]

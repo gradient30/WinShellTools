@@ -78,10 +78,7 @@ mod tests {
         let after_install = install_mgr::install_module().expect("install");
         assert!(after_install.status.profile_configured);
         assert!(after_install.status.ps7_module_present);
-        assert!(
-            workspace::is_initialized(),
-            "安装后工作区应保留"
-        );
+        assert!(workspace::is_initialized(), "安装后工作区应保留");
 
         let after_uninstall = install_mgr::uninstall_module().expect("uninstall");
         assert!(!after_uninstall.status.installed);
@@ -171,7 +168,9 @@ mod tests {
         // 等待后台运行时同步在隔离 guard 内完成
         std::thread::sleep(std::time::Duration::from_millis(800));
 
-        let ps7_files = install_mgr::ps7_module_dir().join("Public").join("Files.ps1");
+        let ps7_files = install_mgr::ps7_module_dir()
+            .join("Public")
+            .join("Files.ps1");
         let ps7_text = std::fs::read_to_string(&ps7_files).expect("PS7 副本应存在");
         assert!(
             ps7_text.contains("function delcmd"),
@@ -187,10 +186,9 @@ mod tests {
             !ps7_text2.contains("delcmd"),
             "删除后 PS7 副本不得残留 delcmd（内容比较同步失效会复现 gpush 式残留）"
         );
-        let ps7_psd1 = std::fs::read_to_string(
-            install_mgr::ps7_module_dir().join("DevShellTools.psd1"),
-        )
-        .unwrap();
+        let ps7_psd1 =
+            std::fs::read_to_string(install_mgr::ps7_module_dir().join("DevShellTools.psd1"))
+                .unwrap();
         assert!(
             !ps7_psd1.contains("'delcmd'"),
             "删除后 PS7 副本 psd1 导出清单不得含 delcmd"

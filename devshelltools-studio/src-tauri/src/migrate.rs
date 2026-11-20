@@ -20,14 +20,20 @@ fn old_sandbox_dir() -> PathBuf {
 fn same_path(a: &Path, b: &Path) -> bool {
     match (a.canonicalize(), b.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
-        _ => a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy()),
+        _ => a
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&b.to_string_lossy()),
     }
 }
 
 /// 可从中回收 Public/*.ps1 的来源：旧沙箱 + 非工作区的模块目录。
 fn merge_source_dirs() -> Vec<PathBuf> {
     let ws = workspace::workspace_root();
-    let mut dirs = vec![old_sandbox_dir(), install_mgr::ps51_module_dir(), install_mgr::ps7_module_dir()];
+    let mut dirs = vec![
+        old_sandbox_dir(),
+        install_mgr::ps51_module_dir(),
+        install_mgr::ps7_module_dir(),
+    ];
     dirs.retain(|d| !same_path(d, &ws));
     dirs.dedup_by(|a, b| same_path(a, b));
     dirs
@@ -117,7 +123,10 @@ pub fn check_migration() -> MigrationCheck {
             } else if same_path(&d, &install_mgr::ps7_module_dir()) {
                 format!("PowerShell 7 模块目录（含尚未并入的命令）：{}", d.display())
             } else if same_path(&d, &install_mgr::ps51_module_dir()) {
-                format!("Windows PowerShell 5.1 模块目录（含尚未并入的命令）：{}", d.display())
+                format!(
+                    "Windows PowerShell 5.1 模块目录（含尚未并入的命令）：{}",
+                    d.display()
+                )
             } else {
                 d.display().to_string()
             }
@@ -206,9 +215,8 @@ pub fn migrate_from_legacy() -> DstResult<MigrateResult> {
             if !source_is_newer_or_missing(&path, &target) {
                 continue;
             }
-            std::fs::copy(&path, &target).map_err(|e| {
-                DstError::Other(format!("复制 {name} 失败：{e}"))
-            })?;
+            std::fs::copy(&path, &target)
+                .map_err(|e| DstError::Other(format!("复制 {name} 失败：{e}")))?;
             if !migrated.iter().any(|n| n == name) {
                 migrated.push(name.to_string());
             }
@@ -270,7 +278,9 @@ mod tests {
         let p = old_sandbox_dir();
         let s = p.to_string_lossy();
         assert!(
-            s.ends_with("DevShellTools") || s.ends_with("DevShellTools\\") || s.ends_with("DevShellTools/"),
+            s.ends_with("DevShellTools")
+                || s.ends_with("DevShellTools\\")
+                || s.ends_with("DevShellTools/"),
             "{s}"
         );
         assert!(

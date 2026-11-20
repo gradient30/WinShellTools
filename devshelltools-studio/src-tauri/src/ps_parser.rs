@@ -307,6 +307,7 @@ pub fn parse_ps1(content: &str) -> DstResult<ParsedPsFile> {
     }
 
     let tmp_path_str = tmp_path.to_string_lossy().replace('\'', "''");
+    let helper = format!("{PS_FN_META_HELPER}\n{PS_COMMAND_HELPER}");
     let script = format!(
         r#"{helper}
 $ErrorActionPreference = 'Stop'
@@ -341,7 +342,7 @@ if ($null -ne $ast) {{
 }}
 $result | ConvertTo-Json -Depth 8 -Compress
 "#,
-        helper = format!("{PS_FN_META_HELPER}\n{PS_COMMAND_HELPER}"),
+        helper = helper,
         tmp_path_str = tmp_path_str
     );
 
@@ -372,8 +373,8 @@ $result | ConvertTo-Json -Depth 8 -Compress
         .find(|l| l.starts_with('{'))
         .ok_or_else(|| DstError::PsParse(format!("未找到 JSON 输出，stdout: {}", stdout.trim())))?;
 
-    let parsed: ParsedPsFile =
-        serde_json::from_str(json_line).map_err(|e| DstError::PsParse(format!("反序列化失败：{e}")))?;
+    let parsed: ParsedPsFile = serde_json::from_str(json_line)
+        .map_err(|e| DstError::PsParse(format!("反序列化失败：{e}")))?;
 
     if !parsed.parse_errors.is_empty() {
         return Err(DstError::PsParse(format!(
@@ -397,9 +398,8 @@ pub fn parse_public_batch(paths: &[std::path::PathBuf]) -> DstResult<Vec<(String
                 parsed.parse_errors.join("; ")
             )));
         }
-        validate_parsed_metadata(parsed).map_err(|e| {
-            DstError::PsParse(format!("{file_name} 元数据错误：{e}"))
-        })?;
+        validate_parsed_metadata(parsed)
+            .map_err(|e| DstError::PsParse(format!("{file_name} 元数据错误：{e}")))?;
     }
     Ok(out)
 }
@@ -436,6 +436,7 @@ fn run_batch_parse(paths: &[std::path::PathBuf]) -> DstResult<Vec<(String, Parse
         .map(|p| format!("'{}'", p.to_string_lossy().replace('\'', "''")))
         .collect();
     let paths_ps = path_literals.join(", ");
+    let helper = format!("{PS_FN_META_HELPER}\n{PS_COMMAND_HELPER}");
 
     let script = format!(
         r#"{helper}
@@ -480,7 +481,7 @@ $items = @()
 foreach ($p in @({paths_ps})) {{ $items += Get-ParsedFile -Path $p }}
 [PSCustomObject]@{{ items = $items }} | ConvertTo-Json -Depth 8 -Compress
 "#,
-        helper = format!("{PS_FN_META_HELPER}\n{PS_COMMAND_HELPER}"),
+        helper = helper,
         paths_ps = paths_ps
     );
 
@@ -524,8 +525,8 @@ foreach ($p in @({paths_ps})) {{ $items += Get-ParsedFile -Path $p }}
         parse_errors: Vec<String>,
     }
 
-    let wrapped: BatchWrap =
-        serde_json::from_str(json_line).map_err(|e| DstError::PsParse(format!("反序列化失败：{e}")))?;
+    let wrapped: BatchWrap = serde_json::from_str(json_line)
+        .map_err(|e| DstError::PsParse(format!("反序列化失败：{e}")))?;
 
     let mut out = vec![];
     for item in wrapped.items {
@@ -545,12 +546,7 @@ foreach ($p in @({paths_ps})) {{ $items += Get-ParsedFile -Path $p }}
 fn which_powershell() -> DstResult<&'static str> {
     static EXE: OnceLock<&'static str> = OnceLock::new();
     Ok(*EXE.get_or_init(|| {
-        let probe = ProcessSpec::new(
-            "pwsh",
-            ["--version"],
-            Duration::from_secs(5),
-            4096,
-        );
+        let probe = ProcessSpec::new("pwsh", ["--version"], Duration::from_secs(5), 4096);
         if run_process(probe).is_ok() {
             "pwsh"
         } else {
@@ -611,7 +607,11 @@ if ($errors -and $errors.Count -gt 0) {{
         )));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let line = stdout.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("OK");
+    let line = stdout
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("OK");
     if line != "OK" {
         return Err(DstError::PsParse(line.to_string()));
     }
@@ -653,11 +653,13 @@ mod tests {
         assert!(names.contains(&"gclean"));
         let gg = r.functions.iter().find(|f| f.name == "gg").expect("gg");
         assert!(
-            gg.parameters.iter().any(|p| p.name == "Count" && p.default_value.as_deref() == Some("20")),
+            gg.parameters
+                .iter()
+                .any(|p| p.name == "Count" && p.default_value.as_deref() == Some("20")),
             "gg 应解析出 Count=20，实际 {:?}",
             gg.parameters
         );
-        assert!(gg.examples.len() >= 1, "gg 应有示例");
+        assert!(!gg.examples.is_empty(), "gg 应有示例");
     }
 
     #[test]

@@ -192,12 +192,17 @@
     <div class="space-y-2">
       {#each functions as f (f.name)}
         <div class="bg-dst-elevated border border-dst-border rounded-lg overflow-hidden transition-all hover:border-dst-border">
-          <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer hover:bg-dst-elevated" onclick={() => toggleExpand(f.name)}>
-            <div class="flex items-center gap-3 min-w-0">
+          <div class="flex items-center gap-2 px-3 py-2.5">
+            <button
+              type="button"
+              class="flex items-center gap-3 min-w-0 flex-1 text-left hover:bg-dst-elevated rounded"
+              aria-expanded={expandedName === f.name}
+              onclick={() => toggleExpand(f.name)}>
               <code class="text-sm font-mono text-dst-accent font-medium shrink-0">{f.name}</code>
               <span class="text-xs text-dst-fg-muted truncate">{f.synopsis || "(无说明)"}</span>
-            </div>
-            <div class="flex items-center gap-1 shrink-0" onclick={(e) => e.stopPropagation()}>
+              <span class="text-dst-fg-subtle text-xs ml-auto">{expandedName === f.name ? "▾" : "▸"}</span>
+            </button>
+            <div class="flex items-center gap-1 shrink-0">
               <button class="px-2 py-0.5 text-xs text-dst-accent hover:text-dst-accent hover:bg-dst-menu-hover rounded transition-colors" onclick={() => startEdit(f)} disabled={busy}>
                 编辑
               </button>
@@ -214,7 +219,6 @@
               <button class="px-2 py-0.5 text-xs text-dst-danger hover:text-dst-danger-fg hover:bg-dst-danger-bg rounded transition-colors" onclick={() => remove(f.name)} disabled={busy}>
                 删
               </button>
-              <span class="text-dst-fg-subtle text-xs ml-1">{expandedName === f.name ? "▾" : "▸"}</span>
             </div>
           </div>
           {#if expandedName === f.name}

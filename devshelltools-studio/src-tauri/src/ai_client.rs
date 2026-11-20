@@ -1,5 +1,5 @@
-use crate::ai_config::{self, AiConfig, AiProtocol, ChatMessage};
 use crate::ai_budget::{cap_output_tokens, trim_messages, validate_endpoint, ContextBudget};
+use crate::ai_config::{self, AiConfig, AiProtocol, ChatMessage};
 use crate::ai_types::AiChatResult;
 use crate::error::{DstError, DstResult};
 use futures_util::StreamExt;
@@ -91,10 +91,7 @@ fn http_client() -> DstResult<&'static reqwest::Client> {
         .map_err(|error| DstError::AiClient(format!("创建 HTTP 客户端失败：{error}")))
 }
 
-async fn wait_with_cancel<T, F>(
-    future: F,
-    cancellation: &ChatCancellation,
-) -> DstResult<T>
+async fn wait_with_cancel<T, F>(future: F, cancellation: &ChatCancellation) -> DstResult<T>
 where
     F: Future<Output = T>,
 {
@@ -175,15 +172,7 @@ pub async fn chat_stream_with_options(
     danger_mode: bool,
     extra_system: Option<&str>,
 ) -> DstResult<Vec<StreamEvent>> {
-    chat_stream_internal(
-        config,
-        api_key,
-        messages,
-        danger_mode,
-        extra_system,
-        None,
-    )
-    .await
+    chat_stream_internal(config, api_key, messages, danger_mode, extra_system, None).await
 }
 
 async fn chat_stream_internal(
@@ -224,24 +213,10 @@ async fn chat_stream_internal(
 
     match config.protocol {
         AiProtocol::Openai => {
-            chat_openai(
-                config,
-                api_key,
-                full_messages,
-                &cancellation,
-                on_event,
-            )
-            .await
+            chat_openai(config, api_key, full_messages, &cancellation, on_event).await
         }
         AiProtocol::Anthropic => {
-            chat_anthropic(
-                config,
-                api_key,
-                full_messages,
-                &cancellation,
-                on_event,
-            )
-            .await
+            chat_anthropic(config, api_key, full_messages, &cancellation, on_event).await
         }
     }
 }
@@ -265,17 +240,14 @@ fn normalize_openai_base_url(base_url: &str) -> String {
 /// - Kimi K2/K3 系列：固定采样，官方要求不传（传非 1 会 400）
 /// - OpenAI o1/o3/o4 推理系列：不支持 temperature
 /// - deepseek-reasoner 等：历史上曾拒绝该参数，省略更安全
+///
 /// 返回 None 表示请求体中省略该字段。
 fn temperature_for_request(model: &str, configured: f64) -> Option<f64> {
     let m = model.to_lowercase();
     if m.starts_with("kimi-k") {
         return None;
     }
-    if m.starts_with("o1")
-        || m.starts_with("o3")
-        || m.starts_with("o4-")
-        || m == "o4"
-    {
+    if m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4-") || m == "o4" {
         return None;
     }
     if m.contains("reasoner") {
@@ -877,10 +849,7 @@ async fn list_ollama_tags(
     openai_base: &str,
     api_key: &str,
 ) -> DstResult<Vec<String>> {
-    let tags_url = if let Some(root) = openai_base
-        .trim_end_matches('/')
-        .strip_suffix("/v1")
-    {
+    let tags_url = if let Some(root) = openai_base.trim_end_matches('/').strip_suffix("/v1") {
         format!("{root}/api/tags")
     } else {
         format!("{}/api/tags", openai_base.trim_end_matches('/'))
@@ -904,11 +873,10 @@ async fn list_ollama_tags(
             "Ollama /api/tags 失败 {status}：{text}"
         )));
     }
-    let parsed: OllamaTagsResponse =
-        tokio::time::timeout(Duration::from_secs(30), resp.json())
-            .await
-            .map_err(|_| DstError::AiClient("解析 Ollama 模型列表超时".into()))?
-            .map_err(DstError::Http)?;
+    let parsed: OllamaTagsResponse = tokio::time::timeout(Duration::from_secs(30), resp.json())
+        .await
+        .map_err(|_| DstError::AiClient("解析 Ollama 模型列表超时".into()))?
+        .map_err(DstError::Http)?;
     let mut ids: Vec<String> = parsed.models.into_iter().map(|m| m.name).collect();
     ids.sort();
     ids.dedup();
@@ -949,10 +917,7 @@ mod tests {
             temperature_for_request("ernie-4.0-turbo-8k", 0.7),
             Some(0.7)
         );
-        assert_eq!(
-            temperature_for_request("moonshot-v1-8k", 0.3),
-            Some(0.3)
-        );
+        assert_eq!(temperature_for_request("moonshot-v1-8k", 0.3), Some(0.3));
     }
 
     #[test]
@@ -984,9 +949,7 @@ mod tests {
         assert!(
             deepseek_disable_thinking("https://api.moonshot.cn/v1", "moonshot-v1-8k").is_none()
         );
-        assert!(
-            deepseek_disable_thinking("https://proxy.example/v1", "deepseek-chat").is_some()
-        );
+        assert!(deepseek_disable_thinking("https://proxy.example/v1", "deepseek-chat").is_some());
         let body = OpenaiRequest {
             model: "deepseek-chat".into(),
             messages: vec![],
@@ -1032,7 +995,7 @@ mod tests {
 
     #[test]
     fn needs_retry_on_reasoning_length() {
-        let events = vec![
+        let events = [
             StreamEvent {
                 kind: "reasoning".into(),
                 content: "分析中".into(),
@@ -1063,7 +1026,7 @@ mod tests {
 
     #[test]
     fn reasoning_only_stream_errors_clearly() {
-        let events = vec![
+        let events = [
             StreamEvent {
                 kind: "reasoning".into(),
                 content: "先分析命令安全性".into(),
@@ -1073,7 +1036,7 @@ mod tests {
                 content: "length".into(),
             },
         ];
-        let err = finalize_openai_events(events, true).unwrap_err();
+        let err = finalize_openai_events(events.into(), true).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("思考过程"), "{msg}");
         assert!(msg.contains("max_tokens"), "{msg}");
@@ -1109,7 +1072,7 @@ mod tests {
 
     #[test]
     fn delta_precedes_validation_and_done() {
-        let events = vec![
+        let events = [
             AiStreamEvent::Start,
             AiStreamEvent::Delta {
                 text: "hello".into(),

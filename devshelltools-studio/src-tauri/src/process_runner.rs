@@ -30,11 +30,7 @@ impl ProcessSpec {
         }
     }
 
-    pub fn powershell(
-        script: &str,
-        timeout: Duration,
-        output_limit: usize,
-    ) -> Self {
+    pub fn powershell(script: &str, timeout: Duration, output_limit: usize) -> Self {
         Self::powershell_with_program("powershell", script, timeout, output_limit)
     }
 
@@ -160,9 +156,7 @@ fn spawn_reader(
     })
 }
 
-fn join_reader(
-    handle: std::thread::JoinHandle<std::io::Result<Vec<u8>>>,
-) -> DstResult<Vec<u8>> {
+fn join_reader(handle: std::thread::JoinHandle<std::io::Result<Vec<u8>>>) -> DstResult<Vec<u8>> {
     handle
         .join()
         .map_err(|_| DstError::Other("读取子进程输出线程异常".into()))?

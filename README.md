@@ -84,6 +84,9 @@ DevShellTools/
 - `super` 打开新的管理员窗口，不提升当前窗口。
 - `psb` 只改当前进程执行策略。
 - 不提供 `git push --force` / `git reset --hard` / 真实 `git clean -f` 快捷命令。
+- Studio 使用 PowerShell AST 检查命令结构；AI 代码示例仅在用户显式确认后运行。
+- API Key 使用当前 Windows 用户 DPAPI 加密；公网 AI 端点必须使用 HTTPS。
+- 工作区写入使用可恢复文件事务，后台运行时同步只处理最新版本。
 
 ---
 
@@ -176,6 +179,12 @@ cargo test --offline --test m6_acceptance -- --test-threads=1
 ```
 
 验收测试通过 `DST_MY_DOCUMENTS` 隔离，仅改 `USERPROFILE` 无效；需在 Windows 上运行。
+
+完整发布门禁（格式、Clippy、Rust/前端测试、安全配置、模板一致性和依赖审计记录）：
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify.ps1
+```
 
 ### 5. 版本号核对清单
 

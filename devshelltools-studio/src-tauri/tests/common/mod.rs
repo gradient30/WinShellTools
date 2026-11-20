@@ -37,6 +37,7 @@ impl IsolatedProfile {
         }
     }
 
+    #[allow(dead_code)]
     pub fn documents_dir(&self) -> PathBuf {
         self.tmp.join("Documents")
     }

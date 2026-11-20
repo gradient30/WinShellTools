@@ -16,7 +16,10 @@ fn key_is_encrypted_and_legacy_plaintext_is_migrated() {
         key_store::load_secret("prof-migrate").expect("load legacy"),
         "legacy-secret"
     );
-    assert!(!legacy.exists(), "legacy plaintext must be removed after migration");
+    assert!(
+        !legacy.exists(),
+        "legacy plaintext must be removed after migration"
+    );
     assert!(keys.join("prof-migrate.dpapi").exists());
 
     key_store::save_secret("prof-new", "new-secret").expect("save");

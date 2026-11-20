@@ -13,13 +13,14 @@ static MY_DOCS_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
 /// 与 install.ps1 安装到 PS5.1 的默认模块目录一致，便携工具直接管理系统安装路径。
 /// 注意：Documents 通过系统 MyDocuments 特殊文件夹获取（支持重定向），非 USERPROFILE\Documents。
 pub fn workspace_root() -> PathBuf {
-    let docs = my_documents_path()
-        .unwrap_or_else(|| {
-            std::env::var("USERPROFILE")
-                .map(|p| PathBuf::from(p).join("Documents"))
-                .unwrap_or_else(|_| PathBuf::from("."))
-        });
-    docs.join("WindowsPowerShell").join("Modules").join("DevShellTools")
+    let docs = my_documents_path().unwrap_or_else(|| {
+        std::env::var("USERPROFILE")
+            .map(|p| PathBuf::from(p).join("Documents"))
+            .unwrap_or_else(|_| PathBuf::from("."))
+    });
+    docs.join("WindowsPowerShell")
+        .join("Modules")
+        .join("DevShellTools")
 }
 
 /// 获取 MyDocuments 路径（与 install.ps1 的 [Environment]::GetFolderPath('MyDocuments') 一致）。
@@ -45,7 +46,11 @@ fn my_documents_path() -> Option<PathBuf> {
         match output {
             Ok(o) if o.status.success() => {
                 let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if path.is_empty() { None } else { Some(PathBuf::from(path)) }
+                if path.is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(path))
+                }
             }
             _ => None,
         }
@@ -320,11 +325,7 @@ pub fn status() -> DstResult<WorkspaceStatus> {
             "".into(),
         )
     };
-    let missing_files = if initialized {
-        vec![]
-    } else {
-        missing_files()
-    };
+    let missing_files = if initialized { vec![] } else { missing_files() };
     let public_files = if initialized {
         list_public_files().unwrap_or_default()
     } else {

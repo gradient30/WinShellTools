@@ -16,9 +16,10 @@
   } = $props();
 
   /** 勾选集合：invalid 永不可勾 */
-  let selected = $state<Set<string>>(
-    new Set(preview.items.filter((i) => i.checked).map((i) => i.rel))
-  );
+  let selected = $state<Set<string>>(new Set());
+  $effect(() => {
+    selected = new Set(preview.items.filter((i) => i.checked).map((i) => i.rel));
+  });
 
   let selectedCount = $derived(selected.size);
   let summary = $derived.by(() => {

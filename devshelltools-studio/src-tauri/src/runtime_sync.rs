@@ -166,19 +166,14 @@ fn run_worker(
     }
 }
 
-fn drain_latest_generation(
-    receiver: &mpsc::Receiver<()>,
-    generation: &AtomicU64,
-) -> u64 {
+fn drain_latest_generation(receiver: &mpsc::Receiver<()>, generation: &AtomicU64) -> u64 {
     while receiver.try_recv().is_ok() {}
     generation.load(Ordering::SeqCst)
 }
 
 fn update_status(slot: &Mutex<RuntimeSyncStatus>, status: RuntimeSyncStatus) {
     let snapshot = {
-        let mut current = slot
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut current = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         *current = status;
         current.clone()
     };

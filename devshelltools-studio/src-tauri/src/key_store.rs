@@ -176,9 +176,8 @@ fn dpapi_protect(secret: &[u8]) -> DstResult<Vec<u8>> {
     if result == 0 {
         return Err(std::io::Error::last_os_error().into());
     }
-    let protected = unsafe {
-        std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec()
-    };
+    let protected =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec() };
     unsafe {
         LocalFree(output.pbData.cast());
     }
@@ -193,8 +192,8 @@ fn dpapi_unprotect(ciphertext: &[u8]) -> DstResult<Vec<u8>> {
         CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
 
-    let size = u32::try_from(ciphertext.len())
-        .map_err(|_| DstError::Other("API Key 密文过长".into()))?;
+    let size =
+        u32::try_from(ciphertext.len()).map_err(|_| DstError::Other("API Key 密文过长".into()))?;
     let input = CRYPT_INTEGER_BLOB {
         cbData: size,
         pbData: ciphertext.as_ptr() as *mut u8,
@@ -214,9 +213,8 @@ fn dpapi_unprotect(ciphertext: &[u8]) -> DstResult<Vec<u8>> {
     if result == 0 {
         return Err(std::io::Error::last_os_error().into());
     }
-    let plain = unsafe {
-        std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec()
-    };
+    let plain =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec() };
     unsafe {
         LocalFree(output.pbData.cast());
     }

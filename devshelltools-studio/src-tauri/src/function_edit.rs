@@ -26,12 +26,7 @@ pub struct FunctionTestResult {
 }
 
 fn ps_exe() -> DstResult<&'static str> {
-    let probe = ProcessSpec::new(
-        "pwsh",
-        ["--version"],
-        Duration::from_secs(5),
-        4096,
-    );
+    let probe = ProcessSpec::new("pwsh", ["--version"], Duration::from_secs(5), 4096);
     if run_process(probe).is_ok() {
         Ok("pwsh")
     } else {
@@ -123,12 +118,8 @@ pub fn examples_from_help_inner(help_inner: &str) -> Vec<String> {
             continue;
         }
         if let Some(ref mut buf) = current {
-            if buf.is_empty() {
-                if !t.is_empty()
-                    && !t.starts_with('.')
-                {
-                    *buf = t.to_string();
-                }
+            if buf.is_empty() && !t.is_empty() && !t.starts_with('.') {
+                *buf = t.to_string();
             }
         }
     }
@@ -196,99 +187,13 @@ fn validate_public_fn_name(name: &str) -> DstResult<()> {
         }
         _ => return Err(DstError::Other("函数名须以小写字母开头".into())),
     }
-    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()) {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    {
         return Err(DstError::Other("函数名仅允许小写字母与数字".into()));
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        build_function_block, examples_from_help_inner, extract_leading_help_inner,
-        patch_param_default, strip_leading_comment_help, FunctionDraft,
-    };
-
-    #[test]
-    fn patch_int_default() {
-        let body = r#"    param(
-        [int]$Count = 20
-    )
-    Assert-Git"#;
-        let out = patch_param_default(body, "Count", "10");
-        assert!(out.contains("$Count = 10"), "{out}");
-        assert!(!out.contains("$Count = 20"));
-    }
-
-    #[test]
-    fn strip_help_keeps_param() {
-        let body = r#"<#
-.SYNOPSIS
-显示历史
-.EXAMPLE
-gg
-#>
-    [CmdletBinding()]
-    param(
-        [int]$Count = 20
-    )
-    Assert-Git"#;
-        let out = strip_leading_comment_help(body);
-        assert!(!out.contains(".SYNOPSIS"), "{out}");
-        assert!(out.contains("$Count = 20"), "{out}");
-    }
-
-    #[test]
-    fn examples_from_help_keeps_all() {
-        let help = r#"
-.SYNOPSIS
-显示历史
-.EXAMPLE
-gg
-.EXAMPLE
-gg 5
-"#;
-        let ex = examples_from_help_inner(help);
-        assert_eq!(ex, vec!["gg".to_string(), "gg 5".to_string()]);
-    }
-
-    #[test]
-    fn build_preserves_extra_examples() {
-        let draft = FunctionDraft {
-            name: "gg".into(),
-            synopsis: "显示历史".into(),
-            example: "gg".into(),
-            body: Some(
-                r#"    [CmdletBinding()]
-    param([int]$Count = 10)
-    Assert-Git"#
-                    .into(),
-            ),
-            param_defaults: None,
-            extra_examples: vec!["gg 5".into()],
-        };
-        let block = build_function_block(&draft);
-        assert!(block.contains(".EXAMPLE\ngg\n.EXAMPLE\ngg 5"), "{block}");
-        assert!(block.contains("$Count = 10"), "{block}");
-        assert!(extract_leading_help_inner(&format!("<#\n.SYNOPSIS\nx\n#>\nbody")).is_some());
-    }
-
-    #[test]
-    fn acknowledge_danger_allows_hard_reset_in_block() {
-        let draft = FunctionDraft {
-            name: "glf".into(),
-            synopsis: "危险".into(),
-            example: "glf".into(),
-            body: Some("    & git reset --hard origin/main".into()),
-            param_defaults: None,
-            extra_examples: vec![],
-        };
-        let block = build_function_block(&draft);
-        let blocked = crate::safety::check(&block).unwrap();
-        assert!(!blocked.ok);
-        let ok = crate::safety::check_with_options(&block, true).unwrap();
-        assert!(ok.ok);
-    }
 }
 
 fn category_rel(file_name: &str) -> DstResult<String> {
@@ -592,10 +497,7 @@ Write-Output $result
 }
 
 /// 将 AI 生成的代码块合并到指定分类（按函数 AST 合并）。
-pub fn apply_code_to_category(
-    file_name: &str,
-    code: &str,
-) -> DstResult<Vec<String>> {
+pub fn apply_code_to_category(file_name: &str, code: &str) -> DstResult<Vec<String>> {
     apply_code_to_category_with_options(file_name, code, false)
 }
 
@@ -614,7 +516,13 @@ pub fn apply_code_to_category_with_options(
     let names: Vec<String> = parsed
         .functions
         .iter()
-        .filter(|f| f.name.chars().next().map(|c| c.is_lowercase()).unwrap_or(false))
+        .filter(|f| {
+            f.name
+                .chars()
+                .next()
+                .map(|c| c.is_lowercase())
+                .unwrap_or(false)
+        })
         .map(|f| f.name.clone())
         .collect();
     if names.is_empty() {
@@ -697,4 +605,93 @@ $enc = New-Object System.Text.UTF8Encoding $true
     workspace::touch_last_sync()?;
     crate::runtime_sync::request_sync();
     Ok(names)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_function_block, examples_from_help_inner, extract_leading_help_inner,
+        patch_param_default, strip_leading_comment_help, FunctionDraft,
+    };
+
+    #[test]
+    fn patch_int_default() {
+        let body = r#"    param(
+        [int]$Count = 20
+    )
+    Assert-Git"#;
+        let out = patch_param_default(body, "Count", "10");
+        assert!(out.contains("$Count = 10"), "{out}");
+        assert!(!out.contains("$Count = 20"));
+    }
+
+    #[test]
+    fn strip_help_keeps_param() {
+        let body = r#"<#
+.SYNOPSIS
+显示历史
+.EXAMPLE
+gg
+#>
+    [CmdletBinding()]
+    param(
+        [int]$Count = 20
+    )
+    Assert-Git"#;
+        let out = strip_leading_comment_help(body);
+        assert!(!out.contains(".SYNOPSIS"), "{out}");
+        assert!(out.contains("$Count = 20"), "{out}");
+    }
+
+    #[test]
+    fn examples_from_help_keeps_all() {
+        let help = r#"
+.SYNOPSIS
+显示历史
+.EXAMPLE
+gg
+.EXAMPLE
+gg 5
+"#;
+        let ex = examples_from_help_inner(help);
+        assert_eq!(ex, vec!["gg".to_string(), "gg 5".to_string()]);
+    }
+
+    #[test]
+    fn build_preserves_extra_examples() {
+        let draft = FunctionDraft {
+            name: "gg".into(),
+            synopsis: "显示历史".into(),
+            example: "gg".into(),
+            body: Some(
+                r#"    [CmdletBinding()]
+    param([int]$Count = 10)
+    Assert-Git"#
+                    .into(),
+            ),
+            param_defaults: None,
+            extra_examples: vec!["gg 5".into()],
+        };
+        let block = build_function_block(&draft);
+        assert!(block.contains(".EXAMPLE\ngg\n.EXAMPLE\ngg 5"), "{block}");
+        assert!(block.contains("$Count = 10"), "{block}");
+        assert!(extract_leading_help_inner("<#\n.SYNOPSIS\nx\n#>\nbody").is_some());
+    }
+
+    #[test]
+    fn acknowledge_danger_allows_hard_reset_in_block() {
+        let draft = FunctionDraft {
+            name: "glf".into(),
+            synopsis: "危险".into(),
+            example: "glf".into(),
+            body: Some("    & git reset --hard origin/main".into()),
+            param_defaults: None,
+            extra_examples: vec![],
+        };
+        let block = build_function_block(&draft);
+        let blocked = crate::safety::check(&block).unwrap();
+        assert!(!blocked.ok);
+        let ok = crate::safety::check_with_options(&block, true).unwrap();
+        assert!(ok.ok);
+    }
 }

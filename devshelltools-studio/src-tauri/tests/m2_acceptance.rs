@@ -6,7 +6,7 @@ mod common;
 mod tests {
     use crate::common::IsolatedProfile;
     use devshelltools_studio_lib::consistency;
-        use devshelltools_studio_lib::ps_parser;
+    use devshelltools_studio_lib::ps_parser;
     use devshelltools_studio_lib::safety;
     use devshelltools_studio_lib::sync;
     use devshelltools_studio_lib::workspace;
@@ -14,8 +14,7 @@ mod tests {
     fn ensure_initialized() {
         if !workspace::is_initialized() {
             workspace::init_from_template().expect("init_from_template");
-            let root = workspace::workspace_root();
-                    }
+        }
     }
 
     #[test]
@@ -35,7 +34,9 @@ mod tests {
         assert!(report.actual_functions.contains(&"gg".to_string()));
         // 内部函数不应在导出列表
         assert!(!report.actual_functions.contains(&"Assert-Git".to_string()));
-        assert!(!report.actual_functions.contains(&"Show-DstCategories".to_string()));
+        assert!(!report
+            .actual_functions
+            .contains(&"Show-DstCategories".to_string()));
     }
 
     #[test]
@@ -99,14 +100,20 @@ dps
         let psm1 = workspace::read_file("DevShellTools.psm1").expect("read psm1");
         assert!(psm1.contains("\"dps\""), "psm1 应含 dps");
         let help = workspace::read_file("Public/Help.ps1").expect("read help");
-        assert!(help.contains("'docker' = [PSCustomObject]"), "help 应含 docker 分类");
+        assert!(
+            help.contains("'docker' = [PSCustomObject]"),
+            "help 应含 docker 分类"
+        );
         assert!(help.contains("'docker'"), "help ValidateSet 应含 docker");
-        assert!(help.contains("@('dps','列出运行中容器。','dps')"), "help HelpData 应含 dps");
+        assert!(
+            help.contains("@('dps','列出运行中容器。','dps')"),
+            "help HelpData 应含 dps"
+        );
 
         // 清理：删除 docker 分类
         workspace::delete_file("Public/Docker.ps1").expect("delete");
         sync::regenerate_all().expect("regenerate after delete");
-        
+
         let cats2 = sync::scan_categories().expect("scan after delete");
         assert_eq!(cats2.len(), 5, "删除后应回到 5 个分类");
         let report2 = consistency::check().expect("consistency after delete");

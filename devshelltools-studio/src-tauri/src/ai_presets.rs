@@ -188,13 +188,23 @@ fn detect_preset(base_url: &str) -> Option<AiPreset> {
 }
 
 fn domain_of(url: &str) -> String {
-    let no_scheme = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://")).unwrap_or(url);
+    let no_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
     let no_trailing = no_scheme.trim_end_matches('/');
-    no_trailing.split('/').next().unwrap_or(no_trailing).to_string()
+    no_trailing
+        .split('/')
+        .next()
+        .unwrap_or(no_trailing)
+        .to_string()
 }
 
 /// 切换协议时，根据当前 base_url 找到对应提供商，返回该协议下的端点。
-pub fn suggest_endpoint(protocol: AiProtocol, current_base_url: Option<&str>) -> AiEndpointSuggestion {
+pub fn suggest_endpoint(
+    protocol: AiProtocol,
+    current_base_url: Option<&str>,
+) -> AiEndpointSuggestion {
     if let Some(url) = current_base_url.filter(|s| !s.trim().is_empty()) {
         if let Some(preset) = detect_preset(url) {
             return match protocol {
@@ -264,13 +274,19 @@ mod tests {
 
     #[test]
     fn deepseek_anthropic_to_openai() {
-        let s = suggest_endpoint(AiProtocol::Openai, Some("https://api.deepseek.com/anthropic"));
+        let s = suggest_endpoint(
+            AiProtocol::Openai,
+            Some("https://api.deepseek.com/anthropic"),
+        );
         assert_eq!(s.base_url, "https://api.deepseek.com/v1");
     }
 
     #[test]
     fn glm_no_anthropic_support() {
-        let s = suggest_endpoint(AiProtocol::Anthropic, Some("https://open.bigmodel.cn/api/paas/v4"));
+        let s = suggest_endpoint(
+            AiProtocol::Anthropic,
+            Some("https://open.bigmodel.cn/api/paas/v4"),
+        );
         assert_eq!(s.base_url, "https://api.anthropic.com/v1");
         assert!(s.note.contains("不支持"));
     }

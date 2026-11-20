@@ -20,7 +20,11 @@
     initialStreamState,
     type AiStreamState
   } from "../aiStream";
+  import { assignCodeBlockTargets, findAssistantIndex } from "../chatState";
   import ConfirmDialog from "./ConfirmDialog.svelte";
+  import ChatCodeBlock from "./ChatCodeBlock.svelte";
+  import ChatComposer from "./ChatComposer.svelte";
+  import ChatMessageList from "./ChatMessageList.svelte";
   import MarkdownText from "./MarkdownText.svelte";
 
   let {
@@ -507,7 +511,7 @@
         handleStreamEvent
       );
       let assistantIdx = streamAssistantId
-        ? messages.findIndex((message) => message.id === streamAssistantId)
+        ? findAssistantIndex(messages, streamAssistantId)
         : -1;
       if (assistantIdx < 0) {
         assistantIdx = messages.length;
@@ -528,14 +532,12 @@
       }
       if (result.code_blocks.length > 0) {
         replyCodeBlocks[assistantIdx] = result.code_blocks;
-        result.code_blocks.forEach((block, bi) => {
-          if (block.category) {
-            const match = categories.find((c) => c.category.name === block.category);
-            targetFiles[`${assistantIdx}-${bi}`] = match?.file_name ?? categories[0]?.file_name ?? "";
-          } else {
-            targetFiles[`${assistantIdx}-${bi}`] = categories[0]?.file_name ?? "";
-          }
-        });
+        targetFiles = assignCodeBlockTargets(
+          result.code_blocks,
+          categories,
+          assistantIdx,
+          targetFiles
+        );
         focusLatestBlocks(assistantIdx, result.code_blocks);
       }
       schedulePersist();
@@ -551,6 +553,42 @@
 
   async function send() {
     await sendPrompt(input);
+  }
+
+  function handleComposerKeydown(event: KeyboardEvent) {
+    if (slashOpen) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        slashIndex = (slashIndex + 1) % slashMatches.length;
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        slashIndex =
+          (slashIndex - 1 + slashMatches.length) % slashMatches.length;
+        return;
+      }
+      if (event.key === "Tab") {
+        event.preventDefault();
+        acceptSlash();
+        return;
+      }
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        acceptSlash();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSlashPalette();
+        return;
+      }
+    }
+    if (event.key === "Enter" && !event.shiftKey && !loading && !editingId) {
+      event.preventDefault();
+      void send();
+    }
   }
 
   async function stopGeneration() {
@@ -757,20 +795,6 @@
     expandedBlocks = new Set(expandedBlocks);
   }
 
-  function canApply(block: ValidatedCodeBlock): boolean {
-    // 只有公共命令（小写函数）可插入；仅辅助函数的块插入必然失败
-    const exported = block.exported_functions ?? block.functions;
-    return block.syntax_ok && block.safety_ok && exported.length > 0;
-  }
-
-  /** 标题：公共命令优先；辅助函数单独标注，避免误当作用户命令 */
-  function blockTitle(block: ValidatedCodeBlock): string {
-    const exported = block.exported_functions ?? block.functions;
-    const helpers = block.helper_functions ?? [];
-    const base = exported.length > 0 ? exported.join(", ") : "（无公共命令）";
-    return helpers.length > 0 ? `${base}（+${helpers.length} 辅助）` : base;
-  }
-
   function scriptIdentity(block: ValidatedCodeBlock): string | null {
     if (block.functions.length === 0) return null;
     return [...block.functions].map((f) => f.toLowerCase()).sort().join(",");
@@ -925,7 +949,7 @@
     </div>
   {/if}
 
-  <div class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+  <ChatMessageList>
     {#if messages.length === 0 && !loading && !resumePick}
       <div class="flex flex-col items-center justify-center h-full text-center gap-3">
         <div class="text-4xl">🤖</div>
@@ -1012,88 +1036,19 @@
                 {@const key = `${i}-${bi}`}
                 {@const latest = isLatestScriptBlock(block, key)}
                 {@const unchanged = latest && isUnchangedFromPrevious(block, i, bi)}
-                {@const title = blockTitle(block)}
-                {#if !latest}
-                  <div class="border border-dst-border rounded-lg overflow-hidden opacity-70">
-                    <div class="flex items-center justify-between px-3 py-1.5 bg-dst-surface gap-2">
-                      <div class="flex items-center gap-2 text-xs min-w-0">
-                        <span class="text-dst-accent font-mono truncate">{title}</span>
-                        <span class="text-dst-fg-muted shrink-0">已有更新版本</span>
-                      </div>
-                      <button type="button" class="text-xs text-dst-fg-muted hover:text-dst-fg shrink-0" onclick={() => toggleBlock(key)}>
-                        {expandedBlocks.has(key) ? "收起旧稿" : "查看旧稿"}
-                      </button>
-                    </div>
-                    {#if expandedBlocks.has(key)}
-                      <pre class="px-3 py-2 text-xs text-dst-fg-muted overflow-x-auto whitespace-pre-wrap font-mono bg-dst-bg/40 border-t border-dst-border">{block.code}</pre>
-                    {/if}
-                  </div>
-                {:else if unchanged}
-                  <div class="border border-dst-border rounded-lg px-3 py-1.5 flex items-center justify-between gap-2 bg-dst-elevated">
-                    <div class="flex items-center gap-2 text-xs min-w-0">
-                      <span class="text-dst-accent font-mono truncate">{title}</span>
-                      <span class="text-dst-fg-muted">与上一版相同 · {block.syntax_ok ? "语法✓" : "语法✗"} · {block.safety_ok ? "安全✓" : "安全✗"}</span>
-                    </div>
-                    <button type="button" class="text-xs text-dst-fg-muted hover:text-dst-fg shrink-0" onclick={() => toggleBlock(key)}>
-                      {expandedBlocks.has(key) ? "收起" : "查看"}
-                    </button>
-                  </div>
-                  {#if expandedBlocks.has(key)}
-                    <pre class="mt-0 border border-t-0 border-dst-border rounded-b-lg px-3 py-2 text-xs text-dst-fg-muted overflow-x-auto whitespace-pre-wrap font-mono bg-dst-bg/40">{block.code}</pre>
-                  {/if}
-                {:else}
-                  <div class="border border-dst-border rounded-lg overflow-hidden">
-                    <div
-                      class="flex items-center justify-between px-3 py-1.5 bg-dst-elevated cursor-pointer hover:bg-dst-muted"
-                      role="button"
-                      tabindex="0"
-                      onclick={() => toggleBlock(key)}
-                      onkeydown={(e) => e.key === "Enter" && toggleBlock(key)}>
-                      <div class="flex items-center gap-2 text-xs">
-                        <span class="text-dst-fg-muted font-mono">{expandedBlocks.has(key) ? "▾" : "▸"}</span>
-                        <span class="text-dst-accent font-mono">{title}</span>
-                        <span class="text-dst-success">最新</span>
-                        <span class="text-dst-fg-muted">{block.syntax_ok ? "语法✓" : "语法✗"} · {block.safety_ok ? "安全✓" : "安全✗"}</span>
-                      </div>
-                    </div>
-                    {#if expandedBlocks.has(key)}
-                      <div class="px-3 py-2 bg-dst-bg/50 space-y-2">
-                        <pre class="text-xs text-dst-fg overflow-x-auto whitespace-pre-wrap font-mono">{block.code}</pre>
-                        {#if !block.syntax_ok || !block.safety_ok}
-                          <p class="text-xs text-dst-warning-fg">
-                            {[block.syntax_err, ...block.safety_violations].filter(Boolean).join("；") || "未通过校验"}
-                          </p>
-                        {:else if (block.quality_warnings ?? []).length > 0}
-                          <p class="text-xs text-dst-warning-fg">
-                            ⚠ 质量提醒：{block.quality_warnings.join("；")}
-                          </p>
-                        {/if}
-                        <div class="flex items-center gap-2">
-                          <select bind:value={targetFiles[key]} class="text-xs bg-dst-elevated border border-dst-border rounded px-2 py-1">
-                            {#each categories as c}
-                              <option value={c.file_name}>{c.category.title}</option>
-                            {/each}
-                          </select>
-                          <button
-                            type="button"
-                            class="px-2 py-1 text-xs bg-dst-btn-success text-dst-btn-success-fg hover:opacity-90 rounded disabled:opacity-40"
-                            disabled={!canApply(block) || applying}
-                            onclick={() => apply(block, key)}>
-                            {applyingKey === key ? "插入中…" : "插入到分类"}
-                          </button>
-                          {#if appliedBlocks.has(key)}
-                            <button
-                              type="button"
-                              class="px-2 py-1 text-xs border border-dst-border bg-dst-surface text-dst-fg hover:bg-dst-elevated rounded"
-                              onclick={() => requestExampleTest(block, key)}>
-                              测试首个示例
-                            </button>
-                          {/if}
-                        </div>
-                      </div>
-                    {/if}
-                  </div>
-                {/if}
+                <ChatCodeBlock
+                  {block}
+                  {latest}
+                  {unchanged}
+                  expanded={expandedBlocks.has(key)}
+                  targetFile={targetFiles[key] ?? ""}
+                  {categories}
+                  applying={applyingKey === key && applying}
+                  applied={appliedBlocks.has(key)}
+                  onToggle={() => toggleBlock(key)}
+                  onTargetChange={(value) => (targetFiles[key] = value)}
+                  onApply={() => apply(block, key)}
+                  onTest={() => requestExampleTest(block, key)} />
               {/each}
             {/if}
           </div>
@@ -1124,7 +1079,7 @@
         </div>
       </div>
     {/if}
-  </div>
+  </ChatMessageList>
 
   <div class="p-3 border-t border-dst-border space-y-2 shrink-0">
     {#if rewindBackup}
@@ -1138,8 +1093,29 @@
     {#if editingId}
       <p class="text-xs text-dst-warning-fg px-1">正在编辑上方消息 — 请在气泡内点「重新发送」</p>
     {/if}
-    <div class="flex gap-2 items-end">
-      <div class="relative flex-1 min-w-0">
+    <ChatComposer
+      bind:input
+      {loading}
+      disabled={loading || !profileId || editingId !== null}
+      rows={rewindBackup ? 5 : 2}
+      toneClass={resumePick
+        ? "border-dst-accent focus:border-dst-accent"
+        : rewindBackup
+          ? "border-dst-warning focus:border-dst-warning"
+          : dangerMode
+            ? "border-dst-danger-border focus:border-dst-danger-border"
+            : "border-dst-border focus:border-dst-accent"}
+      placeholder={resumePick
+        ? `编号 1–${resumePick.summaries.length || 0} 恢复 · /cancel 或 Esc×2 取消`
+        : rewindBackup
+          ? "回退后可修改，然后发送…"
+          : dangerMode
+            ? "危险模式已开…（/safe 关闭）"
+            : "继续追问…（输入 / 可联想命令 · Shift+Enter 换行）"}
+      onKeydown={handleComposerKeydown}
+      onSend={send}
+      onStop={stopGeneration}>
+      {#snippet children()}
         {#if slashOpen}
           <div
             class="absolute bottom-full left-0 right-0 mb-1 z-30 rounded-lg border border-dst-border bg-dst-surface shadow-lg overflow-hidden max-h-56 overflow-y-auto"
@@ -1153,9 +1129,8 @@
                 class="w-full flex items-baseline gap-3 px-3 py-2 text-left text-sm transition-colors {i === slashIndex
                   ? 'bg-dst-menu-hover'
                   : 'hover:bg-dst-elevated'}"
-                onmousedown={(e) => {
-                  // 避免抢焦点导致 textarea blur 后 Enter 异常
-                  e.preventDefault();
+                onmousedown={(event) => {
+                  event.preventDefault();
                   acceptSlash(cmd);
                 }}>
                 <code class="font-mono text-dst-accent shrink-0">{cmd.name}</code>
@@ -1167,79 +1142,8 @@
             </div>
           </div>
         {/if}
-        <textarea
-          id="dst-chat-input"
-          bind:value={input}
-          rows={rewindBackup ? 5 : 2}
-          onkeydown={(e) => {
-            if (slashOpen) {
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                slashIndex = (slashIndex + 1) % slashMatches.length;
-                return;
-              }
-              if (e.key === "ArrowUp") {
-                e.preventDefault();
-                slashIndex =
-                  (slashIndex - 1 + slashMatches.length) % slashMatches.length;
-                return;
-              }
-              if (e.key === "Tab") {
-                e.preventDefault();
-                acceptSlash();
-                return;
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                acceptSlash();
-                return;
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                e.stopPropagation();
-                closeSlashPalette();
-                return;
-              }
-            }
-            // Esc 选号：由 window 统一处理（避免冒泡导致一次按键计两次）
-            if (e.key === "Enter" && !e.shiftKey && !loading && !editingId) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-          placeholder={resumePick
-            ? `编号 1–${resumePick.summaries.length || 0} 恢复 · /cancel 或 Esc×2 取消`
-            : rewindBackup
-              ? "回退后可修改，然后发送…"
-              : dangerMode
-                ? "危险模式已开…（/safe 关闭）"
-                : "继续追问…（输入 / 可联想命令 · Shift+Enter 换行）"}
-          class="w-full px-3 py-2 text-sm bg-dst-elevated border rounded-lg text-dst-fg focus:outline-none resize-y min-h-[2.5rem] max-h-48 {resumePick
-            ? 'border-dst-accent focus:border-dst-accent'
-            : rewindBackup
-              ? 'border-dst-warning focus:border-dst-warning'
-              : dangerMode
-                ? 'border-dst-danger-border focus:border-dst-danger-border'
-                : 'border-dst-border focus:border-dst-accent'}"
-          disabled={loading || !profileId || editingId !== null}></textarea>
-      </div>
-      {#if loading}
-        <button
-          type="button"
-          class="px-4 py-2 text-sm bg-dst-btn-danger text-dst-btn-danger-fg hover:opacity-90 rounded-lg shrink-0"
-          onclick={stopGeneration}>
-          停止
-        </button>
-      {:else}
-        <button
-          type="button"
-          class="px-4 py-2 text-sm bg-dst-accent text-dst-accent-fg hover:bg-dst-accent-hover rounded-lg disabled:opacity-50 shrink-0"
-          onclick={send}
-          disabled={!input.trim() || !profileId || editingId !== null}>
-          发送
-        </button>
-      {/if}
-    </div>
+      {/snippet}
+    </ChatComposer>
   </div>
 </div>
 

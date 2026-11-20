@@ -22,20 +22,25 @@ pub struct InstallResult {
 }
 
 fn documents_dir() -> PathBuf {
-    crate::workspace::my_documents_path_public()
-        .unwrap_or_else(|| {
-            std::env::var("USERPROFILE")
-                .map(|p| PathBuf::from(p).join("Documents"))
-                .unwrap_or_else(|_| PathBuf::from("."))
-        })
+    crate::workspace::my_documents_path_public().unwrap_or_else(|| {
+        std::env::var("USERPROFILE")
+            .map(|p| PathBuf::from(p).join("Documents"))
+            .unwrap_or_else(|_| PathBuf::from("."))
+    })
 }
 
 pub fn ps51_module_dir() -> PathBuf {
-    documents_dir().join("WindowsPowerShell").join("Modules").join("DevShellTools")
+    documents_dir()
+        .join("WindowsPowerShell")
+        .join("Modules")
+        .join("DevShellTools")
 }
 
 pub fn ps7_module_dir() -> PathBuf {
-    documents_dir().join("PowerShell").join("Modules").join("DevShellTools")
+    documents_dir()
+        .join("PowerShell")
+        .join("Modules")
+        .join("DevShellTools")
 }
 
 fn profile_paths() -> Vec<PathBuf> {
@@ -85,8 +90,7 @@ pub fn install_status() -> InstallStatus {
     let ps7_module_present =
         ps7.join("DevShellTools.psd1").exists() && ps7.join("DevShellTools.psm1").exists();
     let profile_configured = profile_paths().iter().any(|p| profile_has_import(p));
-    let installed =
-        profile_configured && (ps51_module_present || ps7_module_present);
+    let installed = profile_configured && (ps51_module_present || ps7_module_present);
     InstallStatus {
         workspace_ready,
         ps51_module_present,
@@ -99,8 +103,7 @@ pub fn install_status() -> InstallStatus {
 /// 每次安装前从内嵌模板覆盖写入 install.ps1，避免工作区残留旧版自毁脚本。
 fn ensure_install_script() -> DstResult<PathBuf> {
     let ws = workspace::workspace_root();
-    std::fs::create_dir_all(&ws)
-        .map_err(|e| DstError::Other(format!("创建工作区失败：{e}")))?;
+    std::fs::create_dir_all(&ws).map_err(|e| DstError::Other(format!("创建工作区失败：{e}")))?;
     let install_ps1 = ws.join("install.ps1");
     std::fs::write(&install_ps1, crate::template::INSTALL_PS1)
         .map_err(|e| DstError::Other(format!("写入 install.ps1 到工作区失败：{e}")))?;
@@ -110,8 +113,7 @@ fn ensure_install_script() -> DstResult<PathBuf> {
 /// 每次卸载前从内嵌模板覆盖写入 uninstall.ps1。
 fn ensure_uninstall_script() -> DstResult<PathBuf> {
     let ws = workspace::workspace_root();
-    std::fs::create_dir_all(&ws)
-        .map_err(|e| DstError::Other(format!("创建工作区失败：{e}")))?;
+    std::fs::create_dir_all(&ws).map_err(|e| DstError::Other(format!("创建工作区失败：{e}")))?;
     let uninstall_ps1 = ws.join("uninstall.ps1");
     std::fs::write(&uninstall_ps1, crate::template::UNINSTALL_PS1)
         .map_err(|e| DstError::Other(format!("写入 uninstall.ps1 到工作区失败：{e}")))?;
@@ -131,7 +133,7 @@ pub fn install_module() -> DstResult<InstallResult> {
         Duration::from_secs(120),
         8 * 1024 * 1024,
     ))
-        .map_err(|e| DstError::Other(format!("启动 install.ps1 失败：{e}")))?;
+    .map_err(|e| DstError::Other(format!("启动 install.ps1 失败：{e}")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(DstError::Other(format!(
@@ -162,7 +164,8 @@ pub fn install_module() -> DstResult<InstallResult> {
 /// 工作区本身即 PS5.1 目录，写入后该 shell 已是最新；PS7 需复制，否则只能靠重装。
 pub fn sync_runtime_modules() -> DstResult<String> {
     let src = workspace::workspace_root();
-    if !src.join("DevShellTools.psd1").exists() && !src.join(workspace::PSD1_DISABLED_NAME).exists() {
+    if !src.join("DevShellTools.psd1").exists() && !src.join(workspace::PSD1_DISABLED_NAME).exists()
+    {
         return Err(DstError::Other("工作区未初始化，无法同步模块".into()));
     }
     let mut notes = Vec::new();
@@ -186,7 +189,12 @@ fn paths_same(a: &Path, b: &Path) -> bool {
 
 fn copy_module_tree(src: &Path, dst: &Path) -> DstResult<()> {
     std::fs::create_dir_all(dst).map_err(|e| DstError::Other(format!("创建模块目录失败：{e}")))?;
-    for name in ["DevShellTools.psd1", "DevShellTools.psm1", "Private", "Public"] {
+    for name in [
+        "DevShellTools.psd1",
+        "DevShellTools.psm1",
+        "Private",
+        "Public",
+    ] {
         let from = src.join(name);
         if !from.exists() {
             // 软卸载时可能是 *.dst-disabled
@@ -252,7 +260,11 @@ fn copy_path(from: &Path, to: &Path) -> DstResult<()> {
                 .map_err(|e| DstError::Other(format!("创建父目录失败：{e}")))?;
         }
         std::fs::copy(from, to).map_err(|e| {
-            DstError::Other(format!("复制失败 {} → {}：{e}", from.display(), to.display()))
+            DstError::Other(format!(
+                "复制失败 {} → {}：{e}",
+                from.display(),
+                to.display()
+            ))
         })?;
     }
     Ok(())
@@ -281,7 +293,7 @@ pub fn uninstall_module() -> DstResult<InstallResult> {
         Duration::from_secs(120),
         8 * 1024 * 1024,
     ))
-        .map_err(|e| DstError::Other(format!("启动 uninstall.ps1 失败：{e}")))?;
+    .map_err(|e| DstError::Other(format!("启动 uninstall.ps1 失败：{e}")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(DstError::Other(format!(

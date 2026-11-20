@@ -91,7 +91,7 @@ legacyonly
         // 初始化工作区
         devshelltools_studio_lib::workspace::init_from_template().expect("init");
         let root = devshelltools_studio_lib::workspace::workspace_root();
-        
+
         // 创建可安全导入的测试脚本（当前导出仅为 Public/*.ps1 平铺）
         let test_ps1 = r#"
 function testexport {
@@ -105,8 +105,7 @@ testexport
     Write-Output "ok"
 }
 "#;
-        devshelltools_studio_lib::workspace::write_file("Public/TestExport.ps1", test_ps1)
-            .unwrap();
+        devshelltools_studio_lib::workspace::write_file("Public/TestExport.ps1", test_ps1).unwrap();
 
         let export_dir = std::env::temp_dir().join(format!(
             "dst-export-target-{}-{}",
@@ -180,8 +179,7 @@ testexport
     fn m4_export_excludes_studio() {
         let _g = IsolatedProfile::new("m4-exclude");
         devshelltools_studio_lib::workspace::init_from_template().expect("init");
-        let root = devshelltools_studio_lib::workspace::workspace_root();
-        
+
         let export_dir = std::env::temp_dir().join(format!(
             "dst-export-exclude-{}-{}",
             std::process::id(),
@@ -262,15 +260,25 @@ customcmd
 
         let bundle = tmp_bundle_dir("bundle-a");
         let exported = export::export_bundle(bundle.to_str().unwrap()).expect("export bundle");
-        assert!(bundle.join("manifest.json").exists(), "包应含 manifest.json");
+        assert!(
+            bundle.join("manifest.json").exists(),
+            "包应含 manifest.json"
+        );
         assert!(bundle.join("Public").join("Custom.ps1").exists());
         assert!(bundle.join("Private").join("Common.ps1").exists());
         assert!(bundle.join("ai_profiles.json").exists());
         // A 端迁移逻辑自动附带 1 个默认 Profile，导出数 ≥ 1
-        assert!(exported.ai_profiles >= 1, "实际导出 {} 个", exported.ai_profiles);
+        assert!(
+            exported.ai_profiles >= 1,
+            "实际导出 {} 个",
+            exported.ai_profiles
+        );
         // API Key 永不随包泄露
         let ai_raw = std::fs::read_to_string(bundle.join("ai_profiles.json")).unwrap();
-        assert!(!ai_raw.contains(SECRET_KEY), "ai_profiles.json 不得包含 Key");
+        assert!(
+            !ai_raw.contains(SECRET_KEY),
+            "ai_profiles.json 不得包含 Key"
+        );
         let manifest_raw = std::fs::read_to_string(bundle.join("manifest.json")).unwrap();
         assert!(!manifest_raw.contains(SECRET_KEY));
         let manifest: export::BundleManifest =
@@ -304,10 +312,9 @@ customcmd
         assert!(!files_item.checked);
         // A 端 save_profile 时迁移逻辑会附带 1 个默认 Profile，故新增数 ≥ 1
         assert!(
-            preview.ai_new >= 1 && preview.ai_existing >= 0,
-            "AI 配置应识别新增（实际 new={} existing={}）",
-            preview.ai_new,
-            preview.ai_existing
+            preview.ai_new >= 1,
+            "AI 配置应识别新增（实际 new={}）",
+            preview.ai_new
         );
 
         // 导入默认勾选项（add + ai）
@@ -333,12 +340,20 @@ customcmd
         let help = workspace::read_file("Public/Help.ps1").unwrap();
         assert!(help.contains("customcmd"), "Help.ps1 应含 customcmd 帮助");
         // 写入应为 BOM UTF-8（PS 5.1 中文安全）
-        let head = std::fs::read(workspace::workspace_root().join("Public").join("Custom.ps1"))
-            .unwrap();
+        let head = std::fs::read(
+            workspace::workspace_root()
+                .join("Public")
+                .join("Custom.ps1"),
+        )
+        .unwrap();
         assert_eq!(head[..3], [0xEF, 0xBB, 0xBF], "导入文件应带 UTF-8 BOM");
         // AI profile 已并入且 Key 状态为未配置
         let store = ai_config::load_profiles_store().unwrap();
-        let p = store.profiles.iter().find(|p| p.id == "prof-sync-test").unwrap();
+        let p = store
+            .profiles
+            .iter()
+            .find(|p| p.id == "prof-sync-test")
+            .unwrap();
         assert!(!p.key_configured, "Key 不随包导入");
 
         // 等待后台运行时同步线程在隔离 guard 内完成，避免污染真实模块目录
@@ -406,9 +421,8 @@ customcmd
         assert_eq!(new_item.action, "add");
 
         // invalid 项强制选入导入 → 二次校验拒绝并记入 errors
-        let result =
-            export::import_bundle(pkg.to_str().unwrap(), &["Public/Evil.ps1".into()])
-                .expect("import 应整体不失败");
+        let result = export::import_bundle(pkg.to_str().unwrap(), &["Public/Evil.ps1".into()])
+            .expect("import 应整体不失败");
         assert!(result.imported.is_empty());
         assert!(
             result.errors.iter().any(|e| e.contains("安全")),
@@ -449,10 +463,7 @@ customcmd
         std::fs::write(dir.join("重要文件.txt"), "x").unwrap();
         let err = export::export_bundle(dir.to_str().unwrap());
         assert!(err.is_err(), "非空目录应被拒绝");
-        assert!(
-            dir.join("重要文件.txt").exists(),
-            "原文件不得被触碰"
-        );
+        assert!(dir.join("重要文件.txt").exists(), "原文件不得被触碰");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -505,7 +516,9 @@ customcmd
         .unwrap();
 
         // 本地 Common.ps1 mtime 回拨一天，使包内版本判为 overwrite
-        let local_common = workspace::workspace_root().join("Private").join("Common.ps1");
+        let local_common = workspace::workspace_root()
+            .join("Private")
+            .join("Common.ps1");
         let script = format!(
             "(Get-Item -LiteralPath '{}').LastWriteTime = (Get-Date).AddDays(-1)",
             local_common.to_string_lossy().replace('\'', "''")
@@ -534,7 +547,12 @@ customcmd
             "Public/C:evil.ps1".to_string(),
         ];
         let result = export::import_bundle(pkg.to_str().unwrap(), &selection).expect("import");
-        assert_eq!(result.imported.len(), 3, "应导入 3 项：{:?}", result.imported);
+        assert_eq!(
+            result.imported.len(),
+            3,
+            "应导入 3 项：{:?}",
+            result.imported
+        );
         assert!(
             result.errors.iter().any(|e| e.contains("非法")),
             "非法路径应被拒绝：{:?}",
@@ -543,13 +561,21 @@ customcmd
 
         // Common.ps1 已更新并带 BOM
         let common_now = std::fs::read(&local_common).unwrap();
-        assert_eq!(common_now[..3], [0xEF, 0xBB, 0xBF], "导入文件应带 UTF-8 BOM");
+        assert_eq!(
+            common_now[..3],
+            [0xEF, 0xBB, 0xBF],
+            "导入文件应带 UTF-8 BOM"
+        );
         let common_text = String::from_utf8_lossy(&common_now[3..]).to_string();
         assert!(common_text.contains("Test-BundleHelper"), "辅助函数应写入");
 
         // AI：同 id 保留本地，新 id 并入
         let store = ai_config::load_profiles_store().unwrap();
-        let same = store.profiles.iter().find(|p| p.id == "prof-sync-test").unwrap();
+        let same = store
+            .profiles
+            .iter()
+            .find(|p| p.id == "prof-sync-test")
+            .unwrap();
         assert_eq!(same.model, "local-model", "同 id 不得覆盖本地配置");
         assert!(
             store.profiles.iter().any(|p| p.id == "prof-brand-new"),

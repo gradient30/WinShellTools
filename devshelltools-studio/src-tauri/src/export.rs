@@ -87,7 +87,10 @@ pub fn import_scripts(source_dir: &str) -> DstResult<ImportResult> {
         match safety::check_parsed(&parsed) {
             Ok(report) if report.ok => {}
             Ok(report) => {
-                errors.push(format!("{name}: 安全拦截 - {}", report.violations.join("；")));
+                errors.push(format!(
+                    "{name}: 安全拦截 - {}",
+                    report.violations.join("；")
+                ));
                 skipped.push(name);
                 continue;
             }
@@ -103,7 +106,11 @@ pub fn import_scripts(source_dir: &str) -> DstResult<ImportResult> {
         imported.push(name);
     }
 
-    Ok(ImportResult { imported, skipped, errors })
+    Ok(ImportResult {
+        imported,
+        skipped,
+        errors,
+    })
 }
 
 // ============ 完整配置包（bundle）：双向同步 / 迁移 ============
@@ -535,7 +542,11 @@ pub fn preview_bundle(source_dir: &str) -> DstResult<BundlePreview> {
                 });
             }
             Err(e) => {
-                items.push(invalid_item(AI_PROFILES_NAME, "ai", format!("解析失败：{e}")));
+                items.push(invalid_item(
+                    AI_PROFILES_NAME,
+                    "ai",
+                    format!("解析失败：{e}"),
+                ));
             }
         }
     }
@@ -589,9 +600,7 @@ pub fn import_bundle(source_dir: &str, selection: &[String]) -> DstResult<Import
                 }
                 let mut p = p;
                 if let Err(error) = ai_config::validate_profile_config(&p) {
-                    result
-                        .errors
-                        .push(format!("AI Profile {}: {error}", p.id));
+                    result.errors.push(format!("AI Profile {}: {error}", p.id));
                     continue;
                 }
                 p.key_configured = false; // Key 永不随包导入
@@ -627,10 +636,7 @@ pub fn import_bundle(source_dir: &str, selection: &[String]) -> DstResult<Import
                 result.errors.push(format!("{sel}: 非法的文件路径"));
                 continue;
             }
-            (
-                source.join("Public").join(name),
-                format!("Public/{name}"),
-            )
+            (source.join("Public").join(name), format!("Public/{name}"))
         };
         let content = match std::fs::read_to_string(&src_path) {
             Ok(c) => c,
@@ -649,7 +655,9 @@ pub fn import_bundle(source_dir: &str, selection: &[String]) -> DstResult<Import
         match safety::check_parsed(&parsed) {
             Ok(r) if r.ok => {}
             Ok(r) => {
-                result.errors.push(format!("{sel}: 安全拦截 {}", r.violations.join("；")));
+                result
+                    .errors
+                    .push(format!("{sel}: 安全拦截 {}", r.violations.join("；")));
                 continue;
             }
             Err(e) => {
@@ -673,15 +681,4 @@ pub fn import_bundle(source_dir: &str, selection: &[String]) -> DstResult<Import
         result.runtime_synced = true;
     }
     Ok(result)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn export_excludes_non_ps1() {
-        // 逻辑测试：只复制 .ps1
-        assert!(true); // 端到端测试在 m4_acceptance
-    }
 }

@@ -143,7 +143,10 @@ function nohelp {
 "#;
         let parsed = ps_parser::parse_ps1(code).expect("解析");
         assert_eq!(parsed.functions.len(), 1);
-        assert!(parsed.functions[0].synopsis.is_empty(), "缺 synopsis 应为空");
+        assert!(
+            parsed.functions[0].synopsis.is_empty(),
+            "缺 synopsis 应为空"
+        );
     }
 
     /// 验收7：AI 块内大写辅助函数随公共命令一并写入（此前被丢弃导致命令运行时报错）；

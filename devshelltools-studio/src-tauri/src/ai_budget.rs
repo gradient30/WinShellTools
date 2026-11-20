@@ -38,7 +38,10 @@ pub fn trim_messages(messages: Vec<ChatMessage>, budget: ContextBudget) -> TrimR
         .partition(|message| message.role == "system");
     let mut selected = Vec::new();
     let reserved = 128usize;
-    let mut used_chars: usize = system.iter().map(|message| message.content.chars().count()).sum();
+    let mut used_chars: usize = system
+        .iter()
+        .map(|message| message.content.chars().count())
+        .sum();
 
     for message in history.iter().rev() {
         if selected.len() >= budget.max_messages.saturating_sub(1) {
@@ -61,9 +64,8 @@ pub fn trim_messages(messages: Vec<ChatMessage>, budget: ContextBudget) -> TrimR
 
     let mut output = system;
     if omitted_count > 0 {
-        let marker = format!(
-            "【上下文预算】已省略较早的 {omitted_count} 条消息；以下保留最近对话。"
-        );
+        let marker =
+            format!("【上下文预算】已省略较早的 {omitted_count} 条消息；以下保留最近对话。");
         used_chars = used_chars.saturating_add(marker.chars().count());
         output.push(ChatMessage {
             role: "system".into(),
@@ -78,10 +80,7 @@ pub fn trim_messages(messages: Vec<ChatMessage>, budget: ContextBudget) -> TrimR
     }
 }
 
-pub fn validate_endpoint(
-    base_url: &str,
-    _protocol: AiProtocol,
-) -> DstResult<EndpointPolicy> {
+pub fn validate_endpoint(base_url: &str, _protocol: AiProtocol) -> DstResult<EndpointPolicy> {
     let url = reqwest::Url::parse(base_url.trim())
         .map_err(|error| DstError::AiClient(format!("AI 端点 URL 无效：{error}")))?;
     if !url.username().is_empty() || url.password().is_some() {
@@ -161,10 +160,7 @@ mod tests {
         );
         assert!(result.omitted_count > 0);
         assert_eq!(result.messages.first().expect("system").role, "system");
-        assert_eq!(
-            result.messages.last().expect("newest").content,
-            "newest"
-        );
+        assert_eq!(result.messages.last().expect("newest").content, "newest");
     }
 
     #[test]
