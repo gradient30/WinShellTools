@@ -34,6 +34,8 @@ pub struct StoredCodeBlock {
     #[serde(default)]
     pub helper_functions: Vec<String>,
     #[serde(default)]
+    pub first_example: Option<String>,
+    #[serde(default)]
     pub quality_warnings: Vec<String>,
     pub category: Option<String>,
 }

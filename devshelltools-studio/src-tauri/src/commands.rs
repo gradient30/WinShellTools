@@ -217,13 +217,10 @@ pub async fn test_function(file_name: String, func_name: String) -> DstResult<Fu
     run_blocking(move || function_edit::test_function(&file_name, &func_name)).await
 }
 
-/// AI 插入结果：命令名 + 首个新命令的隔离自测（example 试跑）结果。
+/// AI 插入结果：本次写入的公共命令名。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ApplyAiResult {
-    /// 插入的公共命令名（小写函数；大写辅助函数随写但不计入）
     pub names: Vec<String>,
-    /// None = 无可自测的命令；ok=false 时命令已插入但 example 试跑失败，提示用户检查
-    pub self_test: Option<FunctionTestResult>,
 }
 
 #[tauri::command]
@@ -236,12 +233,7 @@ pub async fn apply_ai_code(
     let danger = danger_mode.unwrap_or(false);
     run_blocking(move || {
         let names = function_edit::apply_code_to_category_with_options(&file_name, &code, danger)?;
-        // 插入后自动验收：隔离进程试跑首个新命令的 example，保证用户拿到即可用
-        let self_test = match names.first() {
-            Some(first) => function_edit::test_function(&file_name, first).ok(),
-            None => None,
-        };
-        Ok(ApplyAiResult { names, self_test })
+        Ok(ApplyAiResult { names })
     })
     .await
 }
@@ -467,6 +459,7 @@ pub async fn ai_chat_with_validation(
             let mut helpers: Vec<String> = vec![];
             let mut functions: Vec<String> = vec![];
             let mut category: Option<String> = None;
+            let mut first_example: Option<String> = None;
             let mut warnings: Vec<String> = vec![];
             let parsed_result = ps_parser::parse_ps1(code);
             let (syntax_ok, syntax_err) = match &parsed_result {
@@ -478,6 +471,9 @@ pub async fn ai_chat_with_validation(
                             && f.name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
                         if is_public {
                             exported.push(f.name.clone());
+                            if first_example.is_none() && !f.first_example.trim().is_empty() {
+                                first_example = Some(f.first_example.clone());
+                            }
                         } else if f.name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false) {
                             helpers.push(f.name.clone());
                         } else {
@@ -532,6 +528,7 @@ pub async fn ai_chat_with_validation(
                 functions,
                 exported_functions: exported,
                 helper_functions: helpers,
+                first_example,
                 quality_warnings: warnings,
                 category,
             });
@@ -557,6 +554,8 @@ pub struct ValidatedCodeBlock {
     pub exported_functions: Vec<String>,
     /// 内部辅助函数（大写开头，随命令一并写入但不作为命令汇报）
     pub helper_functions: Vec<String>,
+    /// 首个公共命令的 .EXAMPLE 首行，供显式确认后试运行
+    pub first_example: Option<String>,
     /// 质量验收警告：缺 SYNOPSIS/EXAMPLE、命名不规范、无公共命令、与已有命令重名
     pub quality_warnings: Vec<String>,
     pub category: Option<String>,

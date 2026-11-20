@@ -46,6 +46,15 @@
   let applying = $state(false);
   /** 正在插入的代码块 key，用于按钮文案 */
   let applyingKey = $state<string | null>(null);
+  /** 本次会话中已成功插入的代码块，用于展示显式试运行入口 */
+  let appliedBlocks = $state<Set<string>>(new Set());
+  let exampleTestConfirm = $state<{
+    key: string;
+    fileName: string;
+    funcName: string;
+    example: string;
+  } | null>(null);
+  let testingExample = $state(false);
   /** 危险模式插入前的二次确认 */
   let dangerInsertConfirm = $state<{
     block: ValidatedCodeBlock;
@@ -166,6 +175,7 @@
     replyCodeBlocks = blocks;
     targetFiles = { ...(sess.target_files || {}) };
     expandedBlocks = new Set();
+    appliedBlocks = new Set();
     editingId = null;
     editText = "";
     rewindBackup = null;
@@ -631,6 +641,7 @@
     errMsg = null;
     try {
       await onApplyCode(block.code, fileName, useDangerMode);
+      appliedBlocks = new Set([...appliedBlocks, key]);
     } catch (e) {
       errMsg = String(e);
     } finally {
@@ -648,6 +659,42 @@
 
   function cancelDangerInsert() {
     dangerInsertConfirm = null;
+  }
+
+  function requestExampleTest(block: ValidatedCodeBlock, key: string) {
+    const fileName = targetFiles[key];
+    const funcName = (block.exported_functions ?? block.functions)[0];
+    if (!fileName || !funcName) return;
+    exampleTestConfirm = {
+      key,
+      fileName,
+      funcName,
+      example: block.first_example?.trim() || funcName
+    };
+  }
+
+  async function confirmExampleTest() {
+    const pending = exampleTestConfirm;
+    if (!pending) return;
+    exampleTestConfirm = null;
+    testingExample = true;
+    try {
+      const result = await api.testFunction(pending.fileName, pending.funcName);
+      const firstLine =
+        (result.ok ? result.stdout : result.stderr)
+          .split("\n")
+          .map((line) => line.trim())
+          .find(Boolean) || "无输出";
+      showToast(
+        result.ok ? `示例通过：${firstLine}` : `示例失败：${firstLine}`,
+        result.ok ? "success" : "warning",
+        result.ok ? 3500 : 6000
+      );
+    } catch (e) {
+      errMsg = String(e);
+    } finally {
+      testingExample = false;
+    }
   }
 
   function toggleBlock(key: string) {
@@ -980,6 +1027,14 @@
                             onclick={() => apply(block, key)}>
                             {applyingKey === key ? "插入中…" : "插入到分类"}
                           </button>
+                          {#if appliedBlocks.has(key)}
+                            <button
+                              type="button"
+                              class="px-2 py-1 text-xs border border-dst-border bg-dst-surface text-dst-fg hover:bg-dst-elevated rounded"
+                              onclick={() => requestExampleTest(block, key)}>
+                              测试首个示例
+                            </button>
+                          {/if}
                         </div>
                       </div>
                     {/if}
@@ -1142,3 +1197,15 @@
   busy={applying}
   onConfirm={confirmDangerInsert}
   onCancel={cancelDangerInsert} />
+
+<ConfirmDialog
+  open={exampleTestConfirm !== null}
+  title="运行示例自测"
+  message={exampleTestConfirm
+    ? `目标文件：${exampleTestConfirm.fileName}\n命令：${exampleTestConfirm.funcName}\n将执行：${exampleTestConfirm.example}\n\n示例可能读取文件、访问网络或修改本机状态，确认后才会运行。`
+    : ""}
+  confirmText="运行示例"
+  cancelText="取消"
+  busy={testingExample}
+  onConfirm={confirmExampleTest}
+  onCancel={() => (exampleTestConfirm = null)} />

@@ -4,7 +4,7 @@ function lpr {
 .SYNOPSIS
 管理当前 PowerShell 会话代理。
 .DESCRIPTION
-支持 set、test、show、remove、doctor、clean-user、help。
+支持 set、test、show、remove、doctor、help。
 .EXAMPLE
 lpr set
 .EXAMPLE
@@ -17,7 +17,7 @@ lpr remove
     [CmdletBinding()]
     param(
         [Parameter(Position=0)]
-        [ValidateSet("set","test","show","remove","doctor","clean-user","help")]
+        [ValidateSet("set","test","show","remove","doctor","help")]
         [string]$Action = "help",
 
         [Parameter(Position=1)]
@@ -67,18 +67,16 @@ lpr remove
         "doctor" {
             lpr show
             Write-DstTitle "用户级永久代理"
+            $permanentFound = $false
             foreach ($name in $names) {
                 $value = [Environment]::GetEnvironmentVariable($name,"User")
+                if ($value) { $permanentFound = $true }
                 "{0,-13}: {1}" -f $name, $(if($value){$value}else{"<未设置>"})
             }
-            try { lpr test } catch { Write-DstWarn $_.Exception.Message }
-        }
-        "clean-user" {
-            foreach ($name in $names) {
-                [Environment]::SetEnvironmentVariable($name,$null,"User")
+            if ($permanentFound) {
+                Write-DstWarn "检测到用户级永久代理变量；本工具不会自动修改，请在系统设置中显式清理。"
             }
-            Write-DstOk "已删除 Windows 用户级永久代理变量。"
-            Write-DstWarn "请重新打开 PowerShell、Git Bash、VS Code、Cursor。"
+            try { lpr test } catch { Write-DstWarn $_.Exception.Message }
         }
         "help" {
             dsh help proxy

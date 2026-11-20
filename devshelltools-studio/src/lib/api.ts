@@ -112,6 +112,8 @@ export interface ValidatedCodeBlock {
   exported_functions: string[];
   /** 内部辅助函数（大写开头，随命令写入但不作为命令汇报） */
   helper_functions: string[];
+  /** 首个公共命令的 .EXAMPLE 首行；仅用于显式确认后的试运行 */
+  first_example: string | null;
   /** 质量验收警告：缺 SYNOPSIS/EXAMPLE、命名不规范、无公共命令、与已有命令重名 */
   quality_warnings: string[];
   category: string | null;
@@ -266,7 +268,6 @@ export interface FunctionTestResult {
 /** AI 插入结果：命令名 + 首个新命令的隔离自测结果 */
 export interface ApplyAiResult {
   names: string[];
-  self_test: FunctionTestResult | null;
 }
 
 export const api = {

@@ -63,8 +63,7 @@ $script:DstHelpData = @{
         @("lpr test","测试代理端口和联网","lpr test"),
         @("lpr show","查看当前代理","lpr show"),
         @("lpr remove","移除当前代理","lpr remove"),
-        @("lpr doctor","综合诊断","lpr doctor"),
-        @("lpr clean-user","清理用户级永久代理","lpr clean-user")
+        @("lpr doctor","综合诊断","lpr doctor")
     )
     git = @(
         @("gs","Git 状态","gs"),

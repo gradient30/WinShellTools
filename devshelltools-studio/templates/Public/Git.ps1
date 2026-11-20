@@ -99,6 +99,12 @@ gpp
 gpp origin main
 #>
     [CmdletBinding()] param([Parameter(ValueFromRemainingArguments=$true)][object[]]$GitArgs)
+    foreach ($arg in @($GitArgs)) {
+        $text = [string]$arg
+        if ($text -match '^--force' -or $text -match '^-[^-]*f') {
+            throw "gpp 禁止 force push；请改用普通推送或显式执行 git 命令。"
+        }
+    }
     Assert-Git; & git push @GitArgs
 }
 function gpl {
