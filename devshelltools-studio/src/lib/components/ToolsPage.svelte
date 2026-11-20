@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { api, type BundlePreview, type MigrationCheck, type MigrateResult, type Webview2Status } from "../api";
+  import { onMount } from "svelte";
+  import {
+    api,
+    type BundlePreview,
+    type MigrationCheck,
+    type MigrateResult,
+    type RuntimeSyncStatus,
+    type Webview2Status
+  } from "../api";
   import { showToast } from "../stores/toast";
   import BundleImportDialog from "./BundleImportDialog.svelte";
 
@@ -25,6 +33,36 @@
   let busy = $state(false);
   let msg = $state("");
   let errMsg = $state("");
+  let runtimeSync = $state<RuntimeSyncStatus | null>(null);
+
+  onMount(() => {
+    let unlisten: (() => void) | null = null;
+    void api.onRuntimeSyncStatus((status) => {
+      runtimeSync = status;
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+    void refreshRuntimeSync();
+    return () => unlisten?.();
+  });
+
+  async function refreshRuntimeSync() {
+    try {
+      runtimeSync = await api.runtimeSyncStatus();
+    } catch {
+      runtimeSync = null;
+    }
+  }
+
+  async function retryRuntimeSync() {
+    try {
+      await api.retryRuntimeSync();
+      await refreshRuntimeSync();
+      showToast("已重新排队同步模块目录", "info", 2500);
+    } catch (e) {
+      errMsg = String(e);
+    }
+  }
 
   async function doMigrate() {
     if (!migration?.has_legacy) return;
@@ -235,6 +273,40 @@
           disabled={busy || bundleBusy}>导入配置包</button
         >
       </div>
+    </section>
+
+    <section class="bg-dst-elevated rounded-lg p-4 border border-dst-border">
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <h3 class="text-sm font-semibold text-dst-fg">PowerShell 运行时同步</h3>
+        <button
+          class="text-xs text-dst-accent hover:text-dst-accent-hover"
+          onclick={retryRuntimeSync}
+          disabled={runtimeSync?.state === "queued" || runtimeSync?.state === "syncing"}>
+          重试同步
+        </button>
+      </div>
+      {#if runtimeSync}
+        <p class="text-xs text-dst-fg-muted">
+          状态：{runtimeSync.state === "succeeded"
+            ? "已同步"
+            : runtimeSync.state === "failed"
+              ? "同步失败"
+              : runtimeSync.state === "syncing"
+                ? "同步中"
+                : runtimeSync.state === "queued"
+                  ? "等待同步"
+                  : "尚未同步"}
+          · 版本 {runtimeSync.generation}
+        </p>
+        <p class="text-xs mt-1 {runtimeSync.state === 'failed' ? 'text-dst-danger-fg' : 'text-dst-fg-muted'}">
+          {runtimeSync.last_error || runtimeSync.message}
+        </p>
+        {#if runtimeSync.state === "failed"}
+          <p class="text-xs text-dst-fg-muted mt-1">编辑内容已安全保存，可修正问题后重试同步。</p>
+        {/if}
+      {:else}
+        <p class="text-xs text-dst-fg-muted">状态不可用。</p>
+      {/if}
     </section>
 
     <section class="bg-dst-elevated rounded-lg p-4 border border-dst-border">

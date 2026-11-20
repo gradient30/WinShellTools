@@ -154,16 +154,6 @@ pub fn install_module() -> DstResult<InstallResult> {
     })
 }
 
-/// 后台同步到 PS7 等运行时目录，不阻塞编辑返回（IDE 手感）。
-pub fn spawn_sync_runtime_modules() {
-    std::thread::spawn(|| {
-        match sync_runtime_modules() {
-            Ok(msg) => log::info!("后台模块同步：{msg}"),
-            Err(e) => log::warn!("后台模块同步失败：{e}"),
-        }
-    });
-}
-
 /// 将工作区模块文件同步到其它 PowerShell 模块目录（通常为 PS7）。
 /// 工作区本身即 PS5.1 目录，写入后该 shell 已是最新；PS7 需复制，否则只能靠重装。
 pub fn sync_runtime_modules() -> DstResult<String> {

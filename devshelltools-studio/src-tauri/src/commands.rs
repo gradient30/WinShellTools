@@ -11,6 +11,7 @@ use crate::logging;
 use crate::migrate;
 use crate::ps_parser;
 use crate::pwsh;
+use crate::runtime_sync;
 use crate::safety;
 use crate::sync::{self, CategoryInfo};
 use crate::webview2;
@@ -107,7 +108,7 @@ pub async fn create_category(file_name: String, content: String, _message: Strin
         workspace::write_file(&rel, &content)?;
         sync::regenerate_with_parsed(&file_name, Some(parsed))?;
         workspace::touch_last_sync()?;
-        install_mgr::spawn_sync_runtime_modules();
+        runtime_sync::request_sync();
         Ok(())
     })
     .await
@@ -120,7 +121,7 @@ pub async fn delete_category(file_name: String, _message: String) -> DstResult<(
         workspace::delete_file(&rel)?;
         sync::regenerate_with_parsed(&file_name, None)?;
         workspace::touch_last_sync()?;
-        install_mgr::spawn_sync_runtime_modules();
+        runtime_sync::request_sync();
         Ok(())
     })
     .await
@@ -144,7 +145,7 @@ pub async fn update_category_file(
         workspace::write_file(&rel, &content)?;
         sync::regenerate_with_parsed(&file_name, Some(parsed))?;
         workspace::touch_last_sync()?;
-        install_mgr::spawn_sync_runtime_modules();
+        runtime_sync::request_sync();
         Ok(())
     })
     .await
@@ -156,7 +157,7 @@ pub async fn sync_public(_message: String) -> DstResult<()> {
         // 手动「同步公共部分」仍全量扫描，保证与磁盘完全一致
         sync::regenerate_all()?;
         workspace::touch_last_sync()?;
-        install_mgr::spawn_sync_runtime_modules();
+        runtime_sync::request_sync();
         Ok(())
     })
     .await
@@ -243,6 +244,16 @@ pub async fn install_status() -> install_mgr::InstallStatus {
 #[tauri::command]
 pub async fn install_module() -> DstResult<install_mgr::InstallResult> {
     run_blocking(install_mgr::install_module).await
+}
+
+#[tauri::command]
+pub fn runtime_sync_status() -> runtime_sync::RuntimeSyncStatus {
+    runtime_sync::sync_status()
+}
+
+#[tauri::command]
+pub fn retry_runtime_sync() -> u64 {
+    runtime_sync::retry_sync()
 }
 
 #[tauri::command]

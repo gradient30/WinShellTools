@@ -17,6 +17,7 @@ pub mod process_util;
 pub mod ps_parser;
 pub mod ps_render;
 pub mod pwsh;
+pub mod runtime_sync;
 pub mod safety;
 pub mod sync;
 pub mod template;
@@ -27,6 +28,10 @@ pub mod workspace_path;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            runtime_sync::initialize(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::workspace_status,
             commands::init_workspace,
@@ -44,6 +49,8 @@ pub fn run() {
             commands::install_status,
             commands::install_module,
             commands::uninstall_module,
+            commands::runtime_sync_status,
+            commands::retry_runtime_sync,
             commands::consistency_check,
             commands::safety_check,
             commands::validate_ps_syntax,

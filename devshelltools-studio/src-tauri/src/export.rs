@@ -1,6 +1,5 @@
 use crate::ai_config::{self, AiProfilesStore};
 use crate::error::{DstError, DstResult};
-use crate::install_mgr;
 use crate::ps_parser;
 use crate::safety;
 use crate::sync;
@@ -650,7 +649,7 @@ pub fn import_bundle(source_dir: &str, selection: &[String]) -> DstResult<Import
     if imported_any_script {
         sync::regenerate_all()?;
         workspace::touch_last_sync()?;
-        install_mgr::spawn_sync_runtime_modules();
+        crate::runtime_sync::request_sync();
         result.regenerated = true;
         result.runtime_synced = true;
     }

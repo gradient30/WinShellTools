@@ -481,7 +481,7 @@ $enc = New-Object System.Text.UTF8Encoding $true
     let parsed = ps_parser::parse_ps1(&content)?;
     sync::regenerate_with_parsed(file_name, Some(parsed))?;
     workspace::touch_last_sync()?;
-    crate::install_mgr::spawn_sync_runtime_modules();
+    crate::runtime_sync::request_sync();
     Ok(())
 }
 
@@ -526,7 +526,7 @@ $enc = New-Object System.Text.UTF8Encoding $true
     let parsed = ps_parser::parse_ps1(&content)?;
     sync::regenerate_with_parsed(file_name, Some(parsed))?;
     workspace::touch_last_sync()?;
-    crate::install_mgr::spawn_sync_runtime_modules();
+    crate::runtime_sync::request_sync();
     Ok(())
 }
 
@@ -686,6 +686,6 @@ $enc = New-Object System.Text.UTF8Encoding $true
     )?)?;
     sync::regenerate_with_parsed(file_name, Some(file_parsed))?;
     workspace::touch_last_sync()?;
-    crate::install_mgr::spawn_sync_runtime_modules();
+    crate::runtime_sync::request_sync();
     Ok(names)
 }

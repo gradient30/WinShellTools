@@ -242,6 +242,16 @@ export interface InstallResult {
   verified: boolean;
 }
 
+export type RuntimeSyncState = "idle" | "queued" | "syncing" | "succeeded" | "failed";
+
+export interface RuntimeSyncStatus {
+  state: RuntimeSyncState;
+  generation: number;
+  message: string;
+  last_error: string | null;
+  updated_at: string;
+}
+
 export interface AiPreset {
   id: string;
   name: string;
@@ -327,6 +337,10 @@ export const api = {
       dangerMode
     }),
   installStatus: () => invoke<InstallStatus>("install_status"),
+  runtimeSyncStatus: () => invoke<RuntimeSyncStatus>("runtime_sync_status"),
+  retryRuntimeSync: () => invoke<number>("retry_runtime_sync"),
+  onRuntimeSyncStatus: (handler: (status: RuntimeSyncStatus) => void) =>
+    listen<RuntimeSyncStatus>("runtime-sync-status", (event) => handler(event.payload)),
   installModule: () => invoke<InstallResult>("install_module"),
   uninstallModule: () => invoke<InstallResult>("uninstall_module"),
   consistencyCheck: () => invoke<ConsistencyReport>("consistency_check"),
