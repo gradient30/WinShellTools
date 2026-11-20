@@ -1,5 +1,7 @@
 use crate::ai_client;
+use crate::ai_client::AiStreamEvent;
 use crate::ai_config::{self, AiConfig, AiProfile, ChatMessage};
+use crate::ai_types::{AiChatResult, ValidatedCodeBlock};
 use crate::chat_session::{self, ChatSession, SessionSummary};
 use crate::consistency;
 use crate::error::{DstError, DstResult};
@@ -17,6 +19,7 @@ use crate::sync::{self, CategoryInfo};
 use crate::webview2;
 use crate::workspace;
 use tauri::AppHandle;
+use tauri::ipc::Channel;
 
 /// 将同步重活丢到阻塞线程池，避免卡住 UI / async runtime。
 async fn run_blocking<T, F>(f: F) -> DstResult<T>
@@ -411,6 +414,42 @@ async fn ai_chat_inner(
     Ok(full)
 }
 
+async fn ai_chat_inner_stream(
+    messages: Vec<ChatMessage>,
+    profile_id: Option<String>,
+    danger_mode: bool,
+    workspace_context: Option<String>,
+    on_event: &Channel<AiStreamEvent>,
+) -> DstResult<String> {
+    let config = ai_config::load_config_for_profile(profile_id.as_deref())?;
+    let id = profile_id
+        .clone()
+        .or_else(|| ai_config::load_profiles_store().ok()?.default_profile_id)
+        .ok_or_else(|| DstError::Other("未选择 AI Profile".into()))?;
+    let api_key = ai_config::load_key_for_profile(&id)?;
+    let events = ai_client::chat_stream_to_channel(
+        &config,
+        &api_key,
+        messages,
+        danger_mode,
+        workspace_context.as_deref(),
+        on_event,
+    )
+    .await?;
+    let full: String = events
+        .iter()
+        .filter(|event| event.kind == "delta")
+        .map(|event| event.content.as_str())
+        .collect();
+    if full.trim().is_empty() {
+        return Err(DstError::Other(
+            "模型返回空正文。若使用 DeepSeek 思考模式，请增大 max_tokens（≥8192）或关闭思考。"
+                .into(),
+        ));
+    }
+    Ok(full)
+}
+
 #[tauri::command]
 pub async fn ai_chat(
     messages: Vec<ChatMessage>,
@@ -433,11 +472,28 @@ pub async fn ai_chat_with_validation(
     profile_id: Option<String>,
     danger_mode: Option<bool>,
     workspace_context: Option<String>,
+    on_event: Channel<AiStreamEvent>,
 ) -> DstResult<AiChatResult> {
     let danger = danger_mode.unwrap_or(false);
-    let reply = ai_chat_inner(messages, profile_id, danger, workspace_context).await?;
+    let reply = match ai_chat_inner_stream(
+        messages,
+        profile_id,
+        danger,
+        workspace_context,
+        &on_event,
+    )
+    .await
+    {
+        Ok(reply) => reply,
+        Err(error) => {
+            let _ = on_event.send(AiStreamEvent::Error {
+                message: error.to_string(),
+            });
+            return Err(error);
+        }
+    };
     let code_blocks = ai_config::extract_code_blocks(&reply);
-    run_blocking(move || {
+    let result = run_blocking(move || {
         // 现有公共命令清单（走缓存，命中零成本）：用于重名提示
         let existing: Vec<String> = sync::scan_categories_cached()
             .unwrap_or_default()
@@ -535,31 +591,23 @@ pub async fn ai_chat_with_validation(
             code_blocks: validated,
         })
     })
-    .await
+    .await;
+    match result {
+        Ok(result) => {
+            let _ = on_event.send(AiStreamEvent::Validation {
+                result: result.clone(),
+            });
+            let _ = on_event.send(AiStreamEvent::Done);
+            Ok(result)
+        }
+        Err(error) => {
+            let _ = on_event.send(AiStreamEvent::Error {
+                message: error.to_string(),
+            });
+            Err(error)
+        }
+    }
 }
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct ValidatedCodeBlock {
-    pub code: String,
-    pub syntax_ok: bool,
-    pub syntax_err: String,
-    pub safety_ok: bool,
-    pub safety_violations: Vec<String>,
-    /// 块内全部函数（兼容保留）
-    pub functions: Vec<String>,
-    /// 公共命令（小写函数名）——用户在终端真正可敲的命令
-    pub exported_functions: Vec<String>,
-    /// 内部辅助函数（大写开头，随命令一并写入但不作为命令汇报）
-    pub helper_functions: Vec<String>,
-    /// 首个公共命令的 .EXAMPLE 首行，供显式确认后试运行
-    pub first_example: Option<String>,
-    /// 质量验收警告：缺 SYNOPSIS/EXAMPLE、命名不规范、无公共命令、与已有命令重名
-    pub quality_warnings: Vec<String>,
-    pub category: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct AiChatResult { pub reply: String, pub code_blocks: Vec<ValidatedCodeBlock> }
 
 // ============ AI 会话持久化 /resume ============
 

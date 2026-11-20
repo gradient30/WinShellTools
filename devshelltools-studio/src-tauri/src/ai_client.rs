@@ -1,4 +1,5 @@
 use crate::ai_config::{self, AiConfig, AiProtocol, ChatMessage};
+use crate::ai_types::AiChatResult;
 use crate::error::{DstError, DstResult};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -6,6 +7,7 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
+use tauri::ipc::Channel;
 
 static CURRENT_CANCEL: Mutex<Option<ChatCancellation>> = Mutex::new(None);
 static HTTP_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
@@ -44,6 +46,29 @@ pub fn cancel_chat() {
 
 fn cancelled_error() -> DstError {
     DstError::Other("已停止生成".into())
+}
+
+fn push_stream_event(
+    events: &mut Vec<StreamEvent>,
+    on_event: Option<&Channel<AiStreamEvent>>,
+    event: StreamEvent,
+) {
+    if let Some(channel) = on_event {
+        match event.kind.as_str() {
+            "delta" => {
+                let _ = channel.send(AiStreamEvent::Delta {
+                    text: event.content.clone(),
+                });
+            }
+            "reasoning" => {
+                let _ = channel.send(AiStreamEvent::Reasoning {
+                    text: event.content.clone(),
+                });
+            }
+            _ => {}
+        }
+    }
+    events.push(event);
 }
 
 fn activate_cancellation(cancellation: &ChatCancellation) {
@@ -97,6 +122,17 @@ pub struct StreamEvent {
     pub content: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AiStreamEvent {
+    Start,
+    Delta { text: String },
+    Reasoning { text: String },
+    Validation { result: AiChatResult },
+    Done,
+    Error { message: String },
+}
+
 /// 构造一次完整 chat 请求并启动流式。
 /// 返回一个 Vec<StreamEvent>（M3 阶段先收集后返回，UI 异步展示；
 /// 真正逐 token 推送需 Tauri event，M3.5 优化）。
@@ -108,6 +144,26 @@ pub async fn chat_stream(
     chat_stream_with_options(config, api_key, messages, false, None).await
 }
 
+pub async fn chat_stream_to_channel(
+    config: &AiConfig,
+    api_key: &str,
+    messages: Vec<ChatMessage>,
+    danger_mode: bool,
+    extra_system: Option<&str>,
+    on_event: &Channel<AiStreamEvent>,
+) -> DstResult<Vec<StreamEvent>> {
+    let _ = on_event.send(AiStreamEvent::Start);
+    chat_stream_internal(
+        config,
+        api_key,
+        messages,
+        danger_mode,
+        extra_system,
+        Some(on_event),
+    )
+    .await
+}
+
 /// `extra_system` 追加到固定 system prompt 之后（如工作区现有命令清单），
 /// OpenAI / Anthropic 两协议统一走同一条 system 消息。
 pub async fn chat_stream_with_options(
@@ -116,6 +172,25 @@ pub async fn chat_stream_with_options(
     messages: Vec<ChatMessage>,
     danger_mode: bool,
     extra_system: Option<&str>,
+) -> DstResult<Vec<StreamEvent>> {
+    chat_stream_internal(
+        config,
+        api_key,
+        messages,
+        danger_mode,
+        extra_system,
+        None,
+    )
+    .await
+}
+
+async fn chat_stream_internal(
+    config: &AiConfig,
+    api_key: &str,
+    messages: Vec<ChatMessage>,
+    danger_mode: bool,
+    extra_system: Option<&str>,
+    on_event: Option<&Channel<AiStreamEvent>>,
 ) -> DstResult<Vec<StreamEvent>> {
     let cancellation = ChatCancellation::new();
     activate_cancellation(&cancellation);
@@ -134,9 +209,25 @@ pub async fn chat_stream_with_options(
     full_messages.extend(messages);
 
     match config.protocol {
-        AiProtocol::Openai => chat_openai(config, api_key, full_messages, &cancellation).await,
+        AiProtocol::Openai => {
+            chat_openai(
+                config,
+                api_key,
+                full_messages,
+                &cancellation,
+                on_event,
+            )
+            .await
+        }
         AiProtocol::Anthropic => {
-            chat_anthropic(config, api_key, full_messages, &cancellation).await
+            chat_anthropic(
+                config,
+                api_key,
+                full_messages,
+                &cancellation,
+                on_event,
+            )
+            .await
         }
     }
 }
@@ -260,6 +351,7 @@ async fn chat_openai(
     api_key: &str,
     messages: Vec<ChatMessage>,
     cancellation: &ChatCancellation,
+    on_event: Option<&Channel<AiStreamEvent>>,
 ) -> DstResult<Vec<StreamEvent>> {
     let base = normalize_openai_base_url(&config.base_url);
     // DeepSeek V4 默认 thinking=enabled：Studio 审阅默认关闭，避免 reasoning 占满 max_tokens
@@ -271,6 +363,7 @@ async fn chat_openai(
         messages.clone(),
         thinking.clone(),
         cancellation,
+        on_event,
     )
     .await
     {
@@ -278,7 +371,15 @@ async fn chat_openai(
         Err(e) if thinking.is_some() && is_thinking_param_rejected(&e) => {
             log::warn!("网关拒绝 thinking 字段，去掉后重试：{e}");
             thinking = None;
-            chat_openai_once(config, api_key, &base, messages.clone(), None, cancellation)
+            chat_openai_once(
+                config,
+                api_key,
+                &base,
+                messages.clone(),
+                None,
+                cancellation,
+                on_event,
+            )
                 .await?
         }
         Err(e) => return Err(e),
@@ -296,6 +397,7 @@ async fn chat_openai(
                 messages.clone(),
                 thinking.clone(),
                 cancellation,
+                on_event,
             )
             .await?;
         }
@@ -312,6 +414,7 @@ async fn chat_openai(
                     kind: "disabled".into(),
                 }),
                 cancellation,
+                on_event,
             )
             .await?;
         }
@@ -342,6 +445,7 @@ async fn chat_openai_once(
     messages: Vec<ChatMessage>,
     thinking: Option<ThinkingParam>,
     cancellation: &ChatCancellation,
+    on_event: Option<&Channel<AiStreamEvent>>,
 ) -> DstResult<Vec<StreamEvent>> {
     if cancellation.is_cancelled() {
         return Err(cancelled_error());
@@ -425,10 +529,14 @@ async fn chat_openai_once(
             };
             let data = data.trim();
             if data == "[DONE]" {
-                events.push(StreamEvent {
-                    kind: "done".into(),
-                    content: finish_reason.clone(),
-                });
+                push_stream_event(
+                    &mut events,
+                    on_event,
+                    StreamEvent {
+                        kind: "done".into(),
+                        content: finish_reason.clone(),
+                    },
+                );
                 return Ok(events);
             }
             if let Ok(chunk) = serde_json::from_str::<OpenaiStreamChunk>(data) {
@@ -441,18 +549,26 @@ async fn chat_openai_once(
                     if let Some(delta) = choice.delta.as_ref() {
                         if let Some(r) = delta.reasoning_content.as_ref() {
                             if !r.is_empty() {
-                                events.push(StreamEvent {
-                                    kind: "reasoning".into(),
-                                    content: r.clone(),
-                                });
+                                push_stream_event(
+                                    &mut events,
+                                    on_event,
+                                    StreamEvent {
+                                        kind: "reasoning".into(),
+                                        content: r.clone(),
+                                    },
+                                );
                             }
                         }
                         if let Some(content) = delta.content.as_ref() {
                             if !content.is_empty() {
-                                events.push(StreamEvent {
-                                    kind: "delta".into(),
-                                    content: content.clone(),
-                                });
+                                push_stream_event(
+                                    &mut events,
+                                    on_event,
+                                    StreamEvent {
+                                        kind: "delta".into(),
+                                        content: content.clone(),
+                                    },
+                                );
                             }
                         }
                     }
@@ -463,10 +579,14 @@ async fn chat_openai_once(
     if cancellation.is_cancelled() {
         return Err(cancelled_error());
     }
-    events.push(StreamEvent {
-        kind: "done".into(),
-        content: finish_reason,
-    });
+    push_stream_event(
+        &mut events,
+        on_event,
+        StreamEvent {
+            kind: "done".into(),
+            content: finish_reason,
+        },
+    );
     Ok(events)
 }
 
@@ -540,6 +660,7 @@ async fn chat_anthropic(
     api_key: &str,
     messages: Vec<ChatMessage>,
     cancellation: &ChatCancellation,
+    on_event: Option<&Channel<AiStreamEvent>>,
 ) -> DstResult<Vec<StreamEvent>> {
     if cancellation.is_cancelled() {
         return Err(cancelled_error());
@@ -631,18 +752,26 @@ async fn chat_anthropic(
                         "content_block_delta" => {
                             if let Some(delta) = event.delta {
                                 if let Some(text) = delta.text {
-                                    events.push(StreamEvent {
-                                        kind: "delta".into(),
-                                        content: text,
-                                    });
+                                    push_stream_event(
+                                        &mut events,
+                                        on_event,
+                                        StreamEvent {
+                                            kind: "delta".into(),
+                                            content: text,
+                                        },
+                                    );
                                 }
                             }
                         }
                         "message_stop" => {
-                            events.push(StreamEvent {
-                                kind: "done".into(),
-                                content: String::new(),
-                            });
+                            push_stream_event(
+                                &mut events,
+                                on_event,
+                                StreamEvent {
+                                    kind: "done".into(),
+                                    content: String::new(),
+                                },
+                            );
                             return Ok(events);
                         }
                         _ => {}
@@ -651,10 +780,14 @@ async fn chat_anthropic(
             }
         }
     }
-    events.push(StreamEvent {
-        kind: "done".into(),
-        content: String::new(),
-    });
+    push_stream_event(
+        &mut events,
+        on_event,
+        StreamEvent {
+            kind: "done".into(),
+            content: String::new(),
+        },
+    );
     Ok(events)
 }
 
@@ -967,5 +1100,27 @@ mod tests {
         first.cancel();
         assert!(first.is_cancelled());
         assert!(!second.is_cancelled());
+    }
+
+    #[test]
+    fn delta_precedes_validation_and_done() {
+        let events = vec![
+            AiStreamEvent::Start,
+            AiStreamEvent::Delta {
+                text: "hello".into(),
+            },
+            AiStreamEvent::Validation {
+                result: crate::ai_types::AiChatResult {
+                    reply: "hello".into(),
+                    code_blocks: vec![],
+                },
+            },
+            AiStreamEvent::Done,
+        ];
+        assert!(matches!(events.first(), Some(AiStreamEvent::Start)));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, AiStreamEvent::Delta { .. })));
+        assert!(matches!(events.last(), Some(AiStreamEvent::Done)));
     }
 }

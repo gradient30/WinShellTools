@@ -15,6 +15,11 @@
     type SlashCommand
   } from "../slashCommands";
   import { showToast } from "../stores/toast";
+  import {
+    applyStreamEvent,
+    initialStreamState,
+    type AiStreamState
+  } from "../aiStream";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import MarkdownText from "./MarkdownText.svelte";
 
@@ -80,6 +85,7 @@
   /** `/` 命令联想高亮下标；与当前 input 相同时表示已填入/Esc 关闭 */
   let slashIndex = $state(0);
   let slashSuppressedFor = $state<string | null>(null);
+  let streamState = $state<AiStreamState>(initialStreamState());
 
   let slashMatches = $derived.by(() => {
     const q = parseSlashQuery(input, !!resumePick);
@@ -459,6 +465,34 @@
     rewindBackup = null;
     loading = true;
     errMsg = null;
+    streamState = initialStreamState();
+    let liveState = initialStreamState();
+    let streamAssistantId: string | null = null;
+
+    const handleStreamEvent = (event: Parameters<typeof applyStreamEvent>[1]) => {
+      liveState = applyStreamEvent(liveState, event);
+      streamState = liveState;
+      if (event.type === "start" && !streamAssistantId) {
+        streamAssistantId = newId("assistant");
+        messages = [
+          ...messages,
+          { id: streamAssistantId, role: "assistant", content: "" }
+        ];
+      }
+      if (
+        (event.type === "delta" || event.type === "reasoning") &&
+        streamAssistantId
+      ) {
+        messages = messages.map((message) =>
+          message.id === streamAssistantId
+            ? { ...message, content: liveState.text }
+            : message
+        );
+      }
+      if (event.type === "error" && !event.message.includes("已停止生成")) {
+        errMsg = event.message;
+      }
+    };
 
     const apiMessages = toApiMessages(messages);
     try {
@@ -466,13 +500,29 @@
         apiMessages,
         profileId,
         dangerMode,
-        buildWorkspaceContext()
+        buildWorkspaceContext(),
+        handleStreamEvent
       );
-      const assistantIdx = messages.length;
-      messages = [
-        ...messages,
-        { id: newId("assistant"), role: "assistant", content: result.reply }
-      ];
+      let assistantIdx = streamAssistantId
+        ? messages.findIndex((message) => message.id === streamAssistantId)
+        : -1;
+      if (assistantIdx < 0) {
+        assistantIdx = messages.length;
+        messages = [
+          ...messages,
+          {
+            id: streamAssistantId ?? newId("assistant"),
+            role: "assistant",
+            content: result.reply
+          }
+        ];
+      } else {
+        messages = messages.map((message, index) =>
+          index === assistantIdx
+            ? { ...message, content: result.reply }
+            : message
+        );
+      }
       if (result.code_blocks.length > 0) {
         replyCodeBlocks[assistantIdx] = result.code_blocks;
         result.code_blocks.forEach((block, bi) => {
@@ -492,6 +542,7 @@
       schedulePersist();
     } finally {
       loading = false;
+      streamState = { ...liveState, active: false };
     }
   }
 
@@ -1057,7 +1108,9 @@
             <span class="inline-block w-2 h-2 bg-dst-success rounded-full animate-bounce" style="animation-delay: 0ms"></span>
             <span class="inline-block w-2 h-2 bg-dst-success rounded-full animate-bounce" style="animation-delay: 150ms"></span>
             <span class="inline-block w-2 h-2 bg-dst-success rounded-full animate-bounce" style="animation-delay: 300ms"></span>
-            <span class="text-xs text-dst-fg-muted ml-1">正在生成…</span>
+            <span class="text-xs text-dst-fg-muted ml-1">
+              {streamState.reasoningChars > 0 ? "正在生成（模型思考中）…" : "正在生成…"}
+            </span>
           </div>
           <button
             type="button"

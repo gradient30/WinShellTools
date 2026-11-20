@@ -1,5 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { AiStreamEvent } from "./aiStream";
 
 export interface WorkspaceStatus {
   initialized: boolean;
@@ -383,14 +384,19 @@ export const api = {
     messages: ChatMessage[],
     profileId?: string,
     dangerMode = false,
-    workspaceContext?: string
-  ) =>
-    invoke<AiChatResult>("ai_chat_with_validation", {
+    workspaceContext?: string,
+    onEvent?: (event: AiStreamEvent) => void
+  ) => {
+    const channel = new Channel<AiStreamEvent>();
+    if (onEvent) channel.onmessage = onEvent;
+    return invoke<AiChatResult>("ai_chat_with_validation", {
       messages,
       profileId: profileId ?? null,
       dangerMode,
-      workspaceContext: workspaceContext ?? null
-    }),
+      workspaceContext: workspaceContext ?? null,
+      onEvent: channel
+    });
+  },
   listChatSessions: () => invoke<ResumeListResult>("list_chat_sessions"),
   loadChatSession: (id: string) => invoke<ChatSession>("load_chat_session", { id }),
   saveChatSession: (session: ChatSession) =>
