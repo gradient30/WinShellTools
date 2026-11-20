@@ -13,6 +13,7 @@ pub mod logging;
 pub mod migrate;
 pub mod process_util;
 pub mod ps_parser;
+pub mod ps_render;
 pub mod pwsh;
 pub mod safety;
 pub mod sync;

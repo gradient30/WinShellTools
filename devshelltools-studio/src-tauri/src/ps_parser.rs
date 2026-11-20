@@ -1,5 +1,6 @@
 use crate::error::{DstError, DstResult};
 use crate::process_util::{output_hidden, ps_base_args};
+use crate::ps_render::validate_category_name;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::sync::OnceLock;
@@ -277,6 +278,7 @@ $result | ConvertTo-Json -Depth 8 -Compress
             parsed.parse_errors.join("; ")
         )));
     }
+    validate_parsed_metadata(&parsed)?;
     Ok(parsed)
 }
 
@@ -292,6 +294,9 @@ pub fn parse_public_batch(paths: &[std::path::PathBuf]) -> DstResult<Vec<(String
                 parsed.parse_errors.join("; ")
             )));
         }
+        validate_parsed_metadata(parsed).map_err(|e| {
+            DstError::PsParse(format!("{file_name} 元数据错误：{e}"))
+        })?;
     }
     Ok(out)
 }
@@ -301,7 +306,20 @@ pub fn parse_public_batch(paths: &[std::path::PathBuf]) -> DstResult<Vec<(String
 pub fn parse_public_batch_lenient(
     paths: &[std::path::PathBuf],
 ) -> DstResult<Vec<(String, ParsedPsFile)>> {
-    run_batch_parse(paths)
+    let mut out = run_batch_parse(paths)?;
+    for (_, parsed) in &mut out {
+        if let Err(e) = validate_parsed_metadata(parsed) {
+            parsed.parse_errors.push(e.to_string());
+        }
+    }
+    Ok(out)
+}
+
+fn validate_parsed_metadata(parsed: &ParsedPsFile) -> DstResult<()> {
+    if let Some(category) = &parsed.category {
+        validate_category_name(&category.name)?;
+    }
+    Ok(())
 }
 
 /// 单次 PowerShell 进程批量解析；语法错误随各文件结果带回，不在此处判定。
@@ -546,5 +564,30 @@ mod tests {
         let bad = "function { invalid syntax here";
         let r = parse_ps1(bad);
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn parse_rejects_unsafe_category_name() {
+        let code = r#"
+<#!
+@DST-Category
+Name: files; Write-Output injected
+Title: Files
+Description: test
+Aliases: files
+@DST-Category-End
+#>
+
+function filescmd {
+<#
+.SYNOPSIS
+test
+.EXAMPLE
+filescmd
+#>
+    Write-Output ok
+}
+"#;
+        assert!(parse_ps1(code).is_err());
     }
 }

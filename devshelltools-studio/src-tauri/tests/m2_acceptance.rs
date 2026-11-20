@@ -99,9 +99,9 @@ dps
         let psm1 = workspace::read_file("DevShellTools.psm1").expect("read psm1");
         assert!(psm1.contains("\"dps\""), "psm1 应含 dps");
         let help = workspace::read_file("Public/Help.ps1").expect("read help");
-        assert!(help.contains("docker = [PSCustomObject]"), "help 应含 docker 分类");
-        assert!(help.contains("\"docker\""), "help ValidateSet 应含 docker");
-        assert!(help.contains("@(\"dps\",\"列出运行中容器。\",\"dps\")"), "help HelpData 应含 dps");
+        assert!(help.contains("'docker' = [PSCustomObject]"), "help 应含 docker 分类");
+        assert!(help.contains("'docker'"), "help ValidateSet 应含 docker");
+        assert!(help.contains("@('dps','列出运行中容器。','dps')"), "help HelpData 应含 dps");
 
         // 清理：删除 docker 分类
         workspace::delete_file("Public/Docker.ps1").expect("delete");
