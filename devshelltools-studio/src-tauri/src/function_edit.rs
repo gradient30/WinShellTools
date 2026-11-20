@@ -435,7 +435,9 @@ pub fn upsert_function(
     )?)?;
 
     let block_tmp = write_temp_ps1(&block)?;
-    let path_escaped = file_path.to_string_lossy().replace('\'', "''");
+    let original = workspace::read_file(&rel)?;
+    let edit_tmp = write_temp_ps1(&original)?;
+    let path_escaped = edit_tmp.to_string_lossy().replace('\'', "''");
     let block_path_escaped = block_tmp.to_string_lossy().replace('\'', "''");
     let name_escaped = draft.name.replace('\'', "''");
 
@@ -462,8 +464,17 @@ $enc = New-Object System.Text.UTF8Encoding $true
 "#,
     );
 
-    run_ps_script(&script)?;
+    if let Err(error) = run_ps_script(&script) {
+        let _ = std::fs::remove_file(&block_tmp);
+        let _ = std::fs::remove_file(&edit_tmp);
+        return Err(error);
+    }
     let _ = std::fs::remove_file(&block_tmp);
+    let edited = std::fs::read_to_string(&edit_tmp)?
+        .trim_start_matches('\u{FEFF}')
+        .to_string();
+    let _ = std::fs::remove_file(&edit_tmp);
+    workspace::write_file(&rel, &edited)?;
 
     // 仅校验本次写入的函数块；同文件其它命令（如 AI /danger 插入的 glf）不应阻断 gg 等正常编辑。
     let content = workspace::read_file(&rel)?;
@@ -482,7 +493,9 @@ pub fn delete_function(file_name: &str, func_name: &str) -> DstResult<()> {
     if !file_path.exists() {
         return Err(DstError::FileNotFound(rel));
     }
-    let path_escaped = file_path.to_string_lossy().replace('\'', "''");
+    let original = workspace::read_file(&rel)?;
+    let edit_tmp = write_temp_ps1(&original)?;
+    let path_escaped = edit_tmp.to_string_lossy().replace('\'', "''");
     let name_escaped = func_name.replace('\'', "''");
     let script = format!(
         r#"$ErrorActionPreference = 'Stop'
@@ -500,7 +513,15 @@ $enc = New-Object System.Text.UTF8Encoding $true
 [System.IO.File]::WriteAllText($path, $raw, $enc)
 "#,
     );
-    run_ps_script(&script)?;
+    if let Err(error) = run_ps_script(&script) {
+        let _ = std::fs::remove_file(&edit_tmp);
+        return Err(error);
+    }
+    let edited = std::fs::read_to_string(&edit_tmp)?
+        .trim_start_matches('\u{FEFF}')
+        .to_string();
+    let _ = std::fs::remove_file(&edit_tmp);
+    workspace::write_file(&rel, &edited)?;
     let content = workspace::read_file(&rel)?;
     let parsed = ps_parser::parse_ps1(&content)?;
     sync::regenerate_with_parsed(file_name, Some(parsed))?;
@@ -592,10 +613,11 @@ pub fn apply_code_to_category_with_options(
     }
 
     let rel = category_rel(file_name)?;
-    let target = workspace::workspace_root().join(&rel);
-    if !target.exists() {
+    if !workspace::workspace_root().join(&rel).exists() {
         return Err(DstError::FileNotFound(rel));
     }
+    let original = workspace::read_file(&rel)?;
+    let target_tmp = write_temp_ps1(&original)?;
 
     let mut tmp = std::env::temp_dir();
     tmp.push(format!(
@@ -613,7 +635,7 @@ pub fn apply_code_to_category_with_options(
         f.write_all(code.as_bytes())?;
     }
 
-    let target_esc = target.to_string_lossy().replace('\'', "''");
+    let target_esc = target_tmp.to_string_lossy().replace('\'', "''");
     let source_esc = tmp.to_string_lossy().replace('\'', "''");
     let script = format!(
         r#"$ErrorActionPreference = 'Stop'
@@ -644,8 +666,17 @@ $enc = New-Object System.Text.UTF8Encoding $true
 [System.IO.File]::WriteAllText($targetPath, $targetRaw, $enc)
 "#,
     );
-    run_ps_script(&script)?;
+    if let Err(error) = run_ps_script(&script) {
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(&target_tmp);
+        return Err(error);
+    }
     let _ = std::fs::remove_file(&tmp);
+    let edited = std::fs::read_to_string(&target_tmp)?
+        .trim_start_matches('\u{FEFF}')
+        .to_string();
+    let _ = std::fs::remove_file(&target_tmp);
+    workspace::write_file(&rel, &edited)?;
 
     let content = workspace::read_file(&rel)?;
     let file_parsed = ps_parser::parse_ps1(&content)?;

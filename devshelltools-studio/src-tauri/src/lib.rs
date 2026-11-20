@@ -6,6 +6,7 @@ pub mod commands;
 pub mod consistency;
 pub mod error;
 pub mod export;
+pub mod file_txn;
 pub mod function_edit;
 pub mod init_progress;
 pub mod install_mgr;

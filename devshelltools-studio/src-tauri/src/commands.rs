@@ -32,7 +32,18 @@ where
 
 #[tauri::command]
 pub async fn workspace_status() -> DstResult<workspace::WorkspaceStatus> {
-    run_blocking(workspace::status).await
+    run_blocking(|| {
+        match workspace::recover_pending_transactions() {
+            Ok(recovered) if !recovered.is_empty() => log::warn!(
+                "启动时恢复了 {} 个未完成文件事务",
+                recovered.len()
+            ),
+            Ok(_) => {}
+            Err(error) => log::error!("启动时恢复文件事务失败：{error}"),
+        }
+        workspace::status()
+    })
+    .await
 }
 
 #[tauri::command]

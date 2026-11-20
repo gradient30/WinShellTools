@@ -1,4 +1,5 @@
 use crate::error::DstResult;
+use crate::file_txn::FileTransaction;
 use crate::ps_render::quote_data;
 use crate::ps_parser::{self, CategoryMeta, PsFunction};
 use crate::workspace;
@@ -259,9 +260,19 @@ fn write_generated_files(cats: &[CategoryInfo], extras: &[PsFunction]) -> DstRes
     let psd1 = regenerate_psd1(&all_names)?;
     let psm1 = regenerate_psm1(&all_names)?;
     let help = regenerate_help_ps1(cats, extras)?;
-    workspace::write_module_manifest(&psd1)?;
-    workspace::write_module_loader(&psm1)?;
-    workspace::write_file("Public/Help.ps1", &help)?;
+    let help_path = crate::workspace_path::WorkspacePath::parse("Public/Help.ps1")?.for_write()?;
+    let mut transaction =
+        FileTransaction::new(&workspace::studio_dir().join("transactions"))?;
+    transaction.stage(&help_path, help.as_bytes())?;
+    transaction.stage(
+        &workspace::module_loader_write_target(),
+        psm1.as_bytes(),
+    )?;
+    transaction.stage(
+        &workspace::module_manifest_write_target(),
+        psd1.as_bytes(),
+    )?;
+    transaction.replace_all()?;
     prime_category_cache_with_extras(cats, extras);
     Ok(())
 }

@@ -100,8 +100,7 @@ pub fn import_scripts(source_dir: &str) -> DstResult<ImportResult> {
         }
 
         // 校验通过，写入
-        let target = public.join(&name);
-        std::fs::write(&target, &content)?;
+        workspace::write_file(&format!("Public/{name}"), &content)?;
         imported.push(name);
     }
 
@@ -202,15 +201,10 @@ fn read_bytes_stripped(path: &Path) -> std::io::Result<Vec<u8>> {
 
 /// 以 UTF-8 + BOM 写入工作区文件（与 AST 替换路径一致，PS 5.1 中文安全）。
 fn write_file_bom(rel: &str, content: &str) -> DstResult<()> {
-    let path = workspace::workspace_root().join(rel);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
     let mut bytes = Vec::with_capacity(content.len() + 3);
     bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
     bytes.extend_from_slice(content.as_bytes());
-    std::fs::write(&path, bytes)?;
-    Ok(())
+    workspace::write_file_bytes(rel, &bytes)
 }
 
 /// 导出完整配置包。目标目录必须不存在或为空，防止误写用户目录。

@@ -1,4 +1,5 @@
 use crate::error::{DstError, DstResult};
+use crate::file_txn::{recover_pending, FileTransaction};
 use crate::process_util::output_hidden;
 use crate::workspace_path::WorkspacePath;
 use std::path::PathBuf;
@@ -106,19 +107,19 @@ fn read_active_or_disabled(active: &str, disabled: &str) -> DstResult<String> {
 }
 
 fn write_active_or_disabled(active: &str, disabled: &str, content: &str) -> DstResult<()> {
+    write_file_bytes(
+        &active_or_disabled_name(active, disabled),
+        content.as_bytes(),
+    )
+}
+
+fn active_or_disabled_name(active: &str, disabled: &str) -> String {
     let root = workspace_root();
-    let active_path = root.join(active);
-    let disabled_path = root.join(disabled);
-    let target = if !active_path.exists() && disabled_path.exists() {
-        disabled_path
+    if !root.join(active).exists() && root.join(disabled).exists() {
+        disabled.to_string()
     } else {
-        active_path
-    };
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)?;
+        active.to_string()
     }
-    std::fs::write(target, content)?;
-    Ok(())
 }
 
 /// 读取模块清单内容（优先活动清单，其次软卸载禁用副本）。
@@ -134,6 +135,20 @@ pub fn write_module_manifest(content: &str) -> DstResult<()> {
 /// 写入模块加载器：禁用态时写入 .psm1.dst-disabled。
 pub fn write_module_loader(content: &str) -> DstResult<()> {
     write_active_or_disabled("DevShellTools.psm1", PSM1_DISABLED_NAME, content)
+}
+
+pub fn module_manifest_write_target() -> std::path::PathBuf {
+    workspace_root().join(active_or_disabled_name(
+        "DevShellTools.psd1",
+        PSD1_DISABLED_NAME,
+    ))
+}
+
+pub fn module_loader_write_target() -> std::path::PathBuf {
+    workspace_root().join(active_or_disabled_name(
+        "DevShellTools.psm1",
+        PSM1_DISABLED_NAME,
+    ))
 }
 
 /// 工作区是否已初始化（核心文件齐全；允许清单/加载器处于软卸载禁用态）。
@@ -241,12 +256,14 @@ pub fn read_file(rel: &str) -> DstResult<String> {
 
 /// 写工作区某文件全文。
 pub fn write_file(rel: &str, content: &str) -> DstResult<()> {
+    write_file_bytes(rel, content.as_bytes())
+}
+
+pub fn write_file_bytes(rel: &str, bytes: &[u8]) -> DstResult<()> {
     let path = WorkspacePath::parse(rel)?.for_write()?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, content)?;
-    Ok(())
+    let mut transaction = FileTransaction::new(&studio_dir().join("transactions"))?;
+    transaction.stage(&path, bytes)?;
+    transaction.replace_all()
 }
 
 /// 删除工作区某文件。
@@ -258,6 +275,10 @@ pub fn delete_file(rel: &str) -> DstResult<()> {
     let path = workspace_path.existing()?;
     std::fs::remove_file(path)?;
     Ok(())
+}
+
+pub fn recover_pending_transactions() -> DstResult<Vec<std::path::PathBuf>> {
+    recover_pending(&studio_dir().join("transactions"))
 }
 
 /// 工作区状态摘要（给前端展示）。
