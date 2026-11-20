@@ -47,11 +47,6 @@ pub async fn list_public_files() -> DstResult<Vec<String>> {
     run_blocking(workspace::list_public_files).await
 }
 
-#[tauri::command]
-pub async fn read_workspace_file(rel: String) -> DstResult<String> {
-    run_blocking(move || workspace::read_file(&rel)).await
-}
-
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ListCategoriesResult {
     pub categories: Vec<CategoryInfo>,
@@ -82,26 +77,6 @@ pub async fn read_category_file(file_name: String) -> DstResult<String> {
 }
 
 // ============ 写入（安全检查 + 重生成，无 git）============
-
-#[tauri::command]
-pub async fn write_workspace_file(rel: String, content: String, _message: String) -> DstResult<()> {
-    run_blocking(move || {
-        workspace::write_file(&rel, &content)?;
-        workspace::touch_last_sync()?;
-        Ok(())
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn delete_workspace_file(rel: String, _message: String) -> DstResult<()> {
-    run_blocking(move || {
-        workspace::delete_file(&rel)?;
-        workspace::touch_last_sync()?;
-        Ok(())
-    })
-    .await
-}
 
 #[tauri::command]
 pub async fn create_category(file_name: String, content: String, _message: String) -> DstResult<()> {
@@ -719,7 +694,7 @@ pub async fn list_logs() -> Vec<String> {
 
 #[tauri::command]
 pub async fn read_log(name: String) -> DstResult<String> {
-    run_blocking(move || Ok(logging::read_log_file(&name))).await
+    run_blocking(move || logging::read_log_file(&name)).await
 }
 
 #[tauri::command]

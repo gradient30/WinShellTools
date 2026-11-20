@@ -1,5 +1,6 @@
 use crate::error::{DstError, DstResult};
 use crate::workspace;
+use crate::workspace_path::validate_component;
 use serde::{Deserialize, Serialize};
 
 /// AI 提供商协议
@@ -113,8 +114,9 @@ fn key_file() -> std::path::PathBuf {
     workspace::studio_dir().join("ai_key.txt")
 }
 
-fn key_file_for(id: &str) -> std::path::PathBuf {
-    keys_dir().join(format!("{id}.txt"))
+fn key_file_for(id: &str) -> DstResult<std::path::PathBuf> {
+    validate_component(id, "AI Profile ID")?;
+    Ok(keys_dir().join(format!("{id}.txt")))
 }
 
 fn migrate_legacy_if_needed() -> DstResult<()> {
@@ -168,7 +170,7 @@ pub fn load_profiles_store() -> DstResult<AiProfilesStore> {
     let mut store: AiProfilesStore = serde_json::from_str(&raw)?;
     let mut bumped = false;
     for p in &mut store.profiles {
-        p.key_configured = key_file_for(&p.id).exists();
+        p.key_configured = key_file_for(&p.id).is_ok_and(|path| path.exists());
         // 旧默认 2048/8192 在 DeepSeek 思考模式下易导致“只思考无正文”；抬到 16384
         if p.max_tokens > 0 && p.max_tokens < 16384 {
             let is_deepseek = p.base_url.to_lowercase().contains("deepseek")
@@ -187,6 +189,9 @@ pub fn load_profiles_store() -> DstResult<AiProfilesStore> {
 }
 
 pub fn save_profiles_store(store: &AiProfilesStore) -> DstResult<()> {
+    for profile in &store.profiles {
+        validate_component(&profile.id, "AI Profile ID")?;
+    }
     if let Some(parent) = profiles_file().parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -209,6 +214,7 @@ pub fn get_profile(id: &str) -> DstResult<AiProfile> {
 }
 
 pub fn save_profile(profile: AiProfile, key: Option<&str>) -> DstResult<AiProfile> {
+    validate_component(&profile.id, "AI Profile ID")?;
     let mut store = load_profiles_store()?;
     if let Some(k) = key {
         if !k.trim().is_empty() {
@@ -216,7 +222,7 @@ pub fn save_profile(profile: AiProfile, key: Option<&str>) -> DstResult<AiProfil
         }
     }
     let mut p = profile;
-    p.key_configured = key_file_for(&p.id).exists();
+    p.key_configured = key_file_for(&p.id)?.exists();
     if let Some(existing) = store.profiles.iter_mut().find(|x| x.id == p.id) {
         *existing = p.clone();
     } else {
@@ -230,9 +236,10 @@ pub fn save_profile(profile: AiProfile, key: Option<&str>) -> DstResult<AiProfil
 }
 
 pub fn delete_profile(id: &str) -> DstResult<()> {
+    validate_component(id, "AI Profile ID")?;
     let mut store = load_profiles_store()?;
     store.profiles.retain(|p| p.id != id);
-    let _ = std::fs::remove_file(key_file_for(id));
+    let _ = std::fs::remove_file(key_file_for(id)?);
     if store.default_profile_id.as_deref() == Some(id) {
         store.default_profile_id = store.profiles.first().map(|p| p.id.clone());
     }
@@ -250,7 +257,7 @@ pub fn load_config_for_profile(id: Option<&str>) -> DstResult<AiConfig> {
 }
 
 pub fn load_key_for_profile(id: &str) -> DstResult<String> {
-    let path = key_file_for(id);
+    let path = key_file_for(id)?;
     if !path.exists() {
         return Err(DstError::Other("未配置 API Key".into()));
     }
@@ -263,7 +270,7 @@ pub fn load_key_for_profile(id: &str) -> DstResult<String> {
 
 pub fn save_key_for_profile(id: &str, key: &str) -> DstResult<()> {
     std::fs::create_dir_all(keys_dir())?;
-    std::fs::write(key_file_for(id), key.trim())?;
+    std::fs::write(key_file_for(id)?, key.trim())?;
     Ok(())
 }
 
@@ -286,7 +293,7 @@ pub fn save_config(cfg: &AiConfig) -> DstResult<()> {
         .map(|p| p.name.clone())
         .unwrap_or_else(|| "默认配置".into());
     let mut profile = AiProfile::from_config(id.clone(), name, cfg);
-    profile.key_configured = key_file_for(&id).exists();
+    profile.key_configured = key_file_for(&id)?.exists();
     if let Some(existing) = store.profiles.iter_mut().find(|p| p.id == id) {
         profile.key_configured = existing.key_configured || profile.key_configured;
         *existing = profile;
@@ -321,7 +328,7 @@ pub fn is_configured() -> bool {
         .map(|s| {
             s.profiles
                 .iter()
-                .any(|p| key_file_for(&p.id).exists())
+                .any(|p| key_file_for(&p.id).is_ok_and(|path| path.exists()))
         })
         .unwrap_or(false)
 }
@@ -489,5 +496,20 @@ mod tests {
         assert!(p.contains("危险模式"));
         assert!(p.contains("reset --hard"));
         assert!(!p.contains("违反则拒绝生成"));
+    }
+
+    #[test]
+    fn profile_id_rejects_traversal_before_file_io() {
+        let profile = AiProfile {
+            id: "../../outside".into(),
+            name: "bad".into(),
+            protocol: AiProtocol::Openai,
+            base_url: "https://example.com".into(),
+            model: "model".into(),
+            temperature: 0.7,
+            max_tokens: 1024,
+            key_configured: false,
+        };
+        assert!(save_profile(profile, Some("secret")).is_err());
     }
 }

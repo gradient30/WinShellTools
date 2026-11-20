@@ -1,4 +1,6 @@
 use crate::workspace;
+use crate::workspace_path::validate_component;
+use crate::error::DstResult;
 use std::path::PathBuf;
 
 /// 日志级别
@@ -107,12 +109,13 @@ pub fn list_log_files() -> Vec<String> {
 }
 
 /// 读取指定日志文件。
-pub fn read_log_file(name: &str) -> String {
+pub fn read_log_file(name: &str) -> DstResult<String> {
+    validate_component(name, "日志文件")?;
     let path = log_dir().join(name);
     if !path.exists() {
-        return String::new();
+        return Ok(String::new());
     }
-    std::fs::read_to_string(path).unwrap_or_default()
+    Ok(std::fs::read_to_string(path).unwrap_or_default())
 }
 
 #[cfg(test)]
@@ -140,5 +143,10 @@ mod tests {
         let s = "普通日志消息";
         let sanitized = sanitize(s);
         assert_eq!(sanitized, s);
+    }
+
+    #[test]
+    fn read_log_rejects_path_traversal() {
+        assert!(read_log_file("../outside.log").is_err());
     }
 }

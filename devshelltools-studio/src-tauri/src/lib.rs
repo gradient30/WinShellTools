@@ -20,6 +20,7 @@ pub mod sync;
 pub mod template;
 pub mod webview2;
 pub mod workspace;
+pub mod workspace_path;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -39,11 +40,8 @@ pub fn run() {
             commands::workspace_status,
             commands::init_workspace,
             commands::list_public_files,
-            commands::read_workspace_file,
             commands::list_categories,
             commands::read_category_file,
-            commands::write_workspace_file,
-            commands::delete_workspace_file,
             commands::create_category,
             commands::delete_category,
             commands::update_category_file,

@@ -287,9 +287,7 @@ fn category_rel(file_name: &str) -> DstResult<String> {
         .trim()
         .trim_start_matches("Public/")
         .trim_start_matches("Public\\");
-    if name.contains("..") || name.contains('/') || name.contains('\\') {
-        return Err(DstError::Other("分类文件名非法".into()));
-    }
+    crate::workspace_path::validate_component(name, "分类文件名")?;
     if !name.ends_with(".ps1") {
         return Err(DstError::Other("文件名必须以 .ps1 结尾".into()));
     }

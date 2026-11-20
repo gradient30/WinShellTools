@@ -276,13 +276,8 @@ export const api = {
   onInitProgress: (handler: (p: InitProgress) => void) =>
     listen<InitProgress>("init-progress", (e) => handler(e.payload)),
   listPublicFiles: () => invoke<string[]>("list_public_files"),
-  readWorkspaceFile: (rel: string) => invoke<string>("read_workspace_file", { rel }),
   listCategories: () => invoke<ListCategoriesResult>("list_categories"),
   readCategoryFile: (fileName: string) => invoke<string>("read_category_file", { fileName }),
-  writeWorkspaceFile: (rel: string, content: string, message: string) =>
-    invoke<void>("write_workspace_file", { rel, content, message }),
-  deleteWorkspaceFile: (rel: string, message: string) =>
-    invoke<void>("delete_workspace_file", { rel, message }),
   createCategory: (fileName: string, content: string, message: string) =>
     invoke<void>("create_category", { fileName, content, message }),
   deleteCategory: (fileName: string, message: string) =>

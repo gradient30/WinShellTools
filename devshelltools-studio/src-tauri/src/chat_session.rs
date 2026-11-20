@@ -3,6 +3,7 @@
 
 use crate::error::{DstError, DstResult};
 use crate::workspace;
+use crate::workspace_path::validate_component;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -80,8 +81,9 @@ fn index_path() -> PathBuf {
     sessions_dir().join(INDEX_NAME)
 }
 
-fn session_path(id: &str) -> PathBuf {
-    sessions_dir().join(format!("{id}.json"))
+fn session_path(id: &str) -> DstResult<PathBuf> {
+    validate_component(id, "会话 ID")?;
+    Ok(sessions_dir().join(format!("{id}.json")))
 }
 
 fn ensure_dir() -> DstResult<()> {
@@ -201,7 +203,9 @@ fn rebuild_index_from_disk(active_id: Option<String>) -> DstResult<SessionIndex>
     if sessions.len() > MAX_SESSIONS {
         // 删掉最旧的超额文件
         for old in sessions.iter().skip(MAX_SESSIONS) {
-            let _ = fs::remove_file(session_path(&old.id));
+            if let Ok(path) = session_path(&old.id) {
+                let _ = fs::remove_file(path);
+            }
         }
         sessions.truncate(MAX_SESSIONS);
     }
@@ -238,7 +242,7 @@ pub fn set_active_id(id: Option<&str>) -> DstResult<()> {
 }
 
 pub fn load_session(id: &str) -> DstResult<ChatSession> {
-    let path = session_path(id);
+    let path = session_path(id)?;
     if !path.exists() {
         return Err(DstError::Other(format!("会话不存在：{id}")));
     }
@@ -261,7 +265,7 @@ pub fn save_session(mut session: ChatSession) -> DstResult<ChatSession> {
     session.updated_at = now;
     session.title = derive_title(&session.messages);
     let data = serde_json::to_vec_pretty(&session)?;
-    atomic_write(&session_path(&session.id), &data)?;
+    atomic_write(&session_path(&session.id)?, &data)?;
 
     let mut idx = rebuild_index_from_disk(Some(session.id.clone()))?;
     idx.active_id = Some(session.id.clone());
@@ -505,5 +509,10 @@ mod tests {
     fn empty_list_message() {
         let t = format_resume_list(&[]);
         assert!(t.contains("暂无"));
+    }
+
+    #[test]
+    fn load_session_rejects_traversal_id_before_file_io() {
+        assert!(load_session("../../outside").is_err());
     }
 }

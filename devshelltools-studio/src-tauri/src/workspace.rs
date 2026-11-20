@@ -1,5 +1,6 @@
 use crate::error::{DstError, DstResult};
 use crate::process_util::output_hidden;
+use crate::workspace_path::WorkspacePath;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -230,16 +231,17 @@ fn strip_utf8_bom(mut s: String) -> String {
 
 /// 读取工作区某文件全文。
 pub fn read_file(rel: &str) -> DstResult<String> {
-    let path = workspace_root().join(rel);
-    if !path.exists() {
+    let workspace_path = WorkspacePath::parse(rel)?;
+    if !workspace_root().join(workspace_path.as_relative()).exists() {
         return Err(DstError::FileNotFound(rel.to_string()));
     }
+    let path = workspace_path.existing()?;
     Ok(strip_utf8_bom(std::fs::read_to_string(path)?))
 }
 
 /// 写工作区某文件全文。
 pub fn write_file(rel: &str, content: &str) -> DstResult<()> {
-    let path = workspace_root().join(rel);
+    let path = WorkspacePath::parse(rel)?.for_write()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -249,10 +251,11 @@ pub fn write_file(rel: &str, content: &str) -> DstResult<()> {
 
 /// 删除工作区某文件。
 pub fn delete_file(rel: &str) -> DstResult<()> {
-    let path = workspace_root().join(rel);
-    if !path.exists() {
+    let workspace_path = WorkspacePath::parse(rel)?;
+    if !workspace_root().join(workspace_path.as_relative()).exists() {
         return Ok(());
     }
+    let path = workspace_path.existing()?;
     std::fs::remove_file(path)?;
     Ok(())
 }
