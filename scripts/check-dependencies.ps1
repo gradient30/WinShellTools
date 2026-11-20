@@ -1,7 +1,7 @@
 param(
     [switch]$AllowNetwork,
     [switch]$RequireTools,
-    [string]$ReportPath = "docs/release/dependency-audit.md"
+    [string]$ReportPath = "devshelltools-studio/src-tauri/target/dependency-audit.md"
 )
 
 Set-StrictMode -Version Latest
@@ -75,6 +75,11 @@ else { $lines.Add("- Result: no blocking result; see tool limitations above") }
 
 $report = Join-Path $repoRoot $ReportPath
 New-Item -ItemType Directory -Path (Split-Path -Parent $report) -Force | Out-Null
-Set-Content -LiteralPath $report -Value $lines -Encoding UTF8
+$content = ($lines -join "`n") + "`n"
+[System.IO.File]::WriteAllText(
+    $report,
+    $content,
+    [System.Text.UTF8Encoding]::new($false)
+)
 Write-Output "Dependency audit written to $report"
 if ($failed) { exit 1 }
