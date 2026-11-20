@@ -61,31 +61,61 @@ psb
 function reload {
 <#
 .SYNOPSIS
-重新加载当前 PowerShell Profile（含 Import-Module DevShellTools -Force）。
+重新加载 DevShellTools 模块（命令改动即刻生效）。
 .DESCRIPTION
-Profile 内的 Import-Module DevShellTools -Force 会卸载并重载本模块（进程级生效，
-命令改动即刻可用）。重载期间本函数所属模块被替换，因此本函数只使用内置
-Write-Host 输出，不得调用 Write-Dst* 等模块内部函数。Profile 中的自定义
-函数/别名在函数作用域执行后不会保留（PowerShell 限制），如需完整生效请
+本函数不能在函数体内直接执行 . $PROFILE 或 Import-Module -Force，原因有二：
+1. Profile 内的 Import-Module DevShellTools -Force 会卸载正在执行的本模块；
+   实测（PS 5.1 / PS 7）从模块函数内发起该重载会损坏会话状态——公共命令
+   仍可调用，但同文件辅助函数（如 Assert-Git）失联报错。
+2. 函数作用域内 dot-source Profile，其中定义的自定义函数/别名不会保留。
+PowerShell 7+：本函数只登记请求并注入一次性全局 prompt 钩子（用
+[scriptblock]::Create() 动态创建以绑定全局会话状态、自包含、不依赖本
+模块）；函数返回、回到提示符时由该钩子在无模块调用栈的全局上下文执行
+Import-Module -Force，完成干净重载。
+PowerShell 5.1：引擎限制（动态创建的 scriptblock 仍绑定模块状态），请
 直接执行：. $PROFILE
+Profile 本身有改动（自定义函数/别名）时同样请直接执行：. $PROFILE
 .EXAMPLE
 reload
 #>
     [CmdletBinding()]
     param()
+    # 全部使用内置命令：本函数与钩子都不得依赖本模块的任何函数。
     if (-not (Test-Path -LiteralPath $PROFILE)) {
         Write-Host "[警告] Profile 不存在：$PROFILE" -ForegroundColor Yellow
+    }
+    if ($PSVersionTable.PSVersion.Major -lt 6) {
+        Write-Host "[提示] PowerShell 5.1 下请直接执行：. $PROFILE" -ForegroundColor Cyan
+        Write-Host "[提示] 该命令会同时重载 DevShellTools 模块与 Profile。" -ForegroundColor DarkGray
         return
     }
-    Write-Host "[信息] 正在重新加载：$PROFILE" -ForegroundColor Cyan
-    try {
-        . $PROFILE
-        # 此处模块可能已被 -Force 重载，严禁调用 Write-Dst* 等模块函数
-        Write-Host "[成功] 已重新加载：$PROFILE" -ForegroundColor Green
+    # 幂等注入全局 prompt 钩子；若 prompt 已被其它工具接管则重新包装在其外层。
+    # 钩子必须用 [scriptblock]::Create() 动态创建：字面量 { } 与字符串 Set-Item
+    # 都会绑定/继承本模块的会话状态，导致钩子内的 Import -Force 仍从模块状态
+    # 发起（会话损坏）；动态创建的 scriptblock 绑定当前 runspace 的全局会话状态。
+    $currentPrompt = "${Function:global:prompt}"
+    if ($currentPrompt -notmatch '__DST_RELOAD_HOOK__') {
+        $global:__DstOrigPrompt = ${Function:global:prompt}
+        $hookCode = @'
+            # __DST_RELOAD_HOOK__（标记用于防止重复包装）
+            if ($global:__DstReloadRequested) {
+                $global:__DstReloadRequested = $false
+                Write-Host "[信息] 正在重载 DevShellTools 模块..." -ForegroundColor Cyan
+                try {
+                    Import-Module DevShellTools -Force -ErrorAction Stop
+                    Write-Host "[成功] 模块已重载，命令改动已生效。" -ForegroundColor Green
+                }
+                catch {
+                    Write-Host "[失败] 模块重载出错：$_" -ForegroundColor Red
+                }
+            }
+            & $global:__DstOrigPrompt
+'@
+        Set-Item -Path Function:\global:prompt -Value ([scriptblock]::Create($hookCode.Trim()))
     }
-    catch {
-        Write-Host "[失败] 重载出错：$_" -ForegroundColor Red
-    }
+    $global:__DstReloadRequested = $true
+    Write-Host "[信息] 已安排重载：返回提示符后自动执行。" -ForegroundColor Cyan
+    Write-Host "[提示] Profile 本身有改动（自定义函数/别名）请执行：. $PROFILE" -ForegroundColor DarkGray
 }
 
 function profile {
