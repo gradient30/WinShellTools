@@ -11,17 +11,17 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "check:security": "node scripts/check-security-config.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.8.0",
-    "@tauri-apps/plugin-fs": "2.4.2",
     "svelte": "^5.13.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^4.0.0",
-    "@tauri-apps/cli": "^2.1.0",
     "@tailwindcss/vite": "^4.0.0",
+    "@tauri-apps/cli": "^2.1.0",
     "tailwindcss": "^4.0.0",
     "vite": "^5.4.10"
   }
