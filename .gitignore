@@ -15,6 +15,7 @@ devshelltools-studio/src-tauri/target/
 .DS_Store
 Thumbs.db
 .playwright-mcp/
+.worktrees/
 
 # Tauri
 src-tauri/gen/
