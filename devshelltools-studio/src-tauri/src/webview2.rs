@@ -1,5 +1,7 @@
 use crate::error::DstResult;
+use crate::process_runner::{run as run_process, ProcessSpec};
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// WebView2 Runtime 检测结果
 #[derive(Debug, Clone, serde::Serialize)]
@@ -31,27 +33,33 @@ pub fn check_webview2() -> DstResult<Webview2Status> {
 
 /// 通过 reg query 检查注册表中的 WebView2 版本
 fn check_registry_version() -> Option<String> {
-    let output = std::process::Command::new("reg")
-        .args([
+    let output = run_process(ProcessSpec::new(
+        "reg",
+        [
             "query",
             r"HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
             "/v",
             "pv",
-        ])
-        .output()
-        .ok()?;
+        ],
+        Duration::from_secs(5),
+        64 * 1024,
+    ))
+    .ok()?;
 
     if !output.status.success() {
         // 尝试 32 位注册表
-        let output = std::process::Command::new("reg")
-            .args([
+        let output = run_process(ProcessSpec::new(
+            "reg",
+            [
                 "query",
                 r"HKLM\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
                 "/v",
                 "pv",
-            ])
-            .output()
-            .ok()?;
+            ],
+            Duration::from_secs(5),
+            64 * 1024,
+        ))
+        .ok()?;
         if !output.status.success() {
             return None;
         }

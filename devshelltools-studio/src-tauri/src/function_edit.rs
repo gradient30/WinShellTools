@@ -1,8 +1,8 @@
 use crate::error::{DstError, DstResult};
-use crate::process_util::{output_hidden, ps_base_args};
+use crate::process_runner::{run as run_process, ProcessSpec};
 use crate::{ps_parser, safety, sync, workspace};
 use serde::Serialize;
-use std::process::Command;
+use std::time::Duration;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct FunctionDraft {
@@ -26,9 +26,13 @@ pub struct FunctionTestResult {
 }
 
 fn ps_exe() -> DstResult<&'static str> {
-    let mut cmd = Command::new("pwsh");
-    cmd.arg("--version");
-    if crate::process_util::output_hidden_ref(&mut cmd).is_ok() {
+    let probe = ProcessSpec::new(
+        "pwsh",
+        ["--version"],
+        Duration::from_secs(5),
+        4096,
+    );
+    if run_process(probe).is_ok() {
         Ok("pwsh")
     } else {
         Ok("powershell")
@@ -36,13 +40,18 @@ fn ps_exe() -> DstResult<&'static str> {
 }
 
 fn run_ps_script(script: &str) -> DstResult<String> {
+    run_ps_script_with_timeout(script, Duration::from_secs(30))
+}
+
+fn run_ps_script_with_timeout(script: &str, timeout: Duration) -> DstResult<String> {
     let exe = ps_exe()?;
-    let mut cmd = Command::new(exe);
-    for arg in ps_base_args(exe) {
-        cmd.arg(arg);
-    }
-    cmd.args(["-Command", script]);
-    let output = output_hidden(cmd).map_err(|e| DstError::Other(format!("启动 PowerShell 失败：{e}")))?;
+    let output = run_process(ProcessSpec::powershell_with_program(
+        exe,
+        script,
+        timeout,
+        8 * 1024 * 1024,
+    ))
+    .map_err(|e| DstError::Other(format!("执行 PowerShell 失败：{e}")))?;
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
         let out = String::from_utf8_lossy(&output.stdout);
@@ -565,7 +574,7 @@ Write-Output $result
 "#,
     );
 
-    let result = match run_ps_script(&script) {
+    let result = match run_ps_script_with_timeout(&script, Duration::from_secs(20)) {
         Ok(stdout) => FunctionTestResult {
             ok: true,
             stdout,

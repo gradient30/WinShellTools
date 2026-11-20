@@ -14,6 +14,7 @@ pub mod key_store;
 pub mod logging;
 pub mod migrate;
 pub mod process_util;
+pub mod process_runner;
 pub mod ps_parser;
 pub mod ps_render;
 pub mod pwsh;

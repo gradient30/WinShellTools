@@ -1,4 +1,4 @@
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Stdio};
 
 /// Windows CREATE_NO_WINDOW
 #[cfg(windows)]
@@ -12,18 +12,6 @@ pub fn configure_hidden(cmd: &mut Command) {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
     cmd.stdin(Stdio::null());
-}
-
-/// 静默执行并捕获输出。
-pub fn output_hidden(mut cmd: Command) -> std::io::Result<Output> {
-    configure_hidden(&mut cmd);
-    cmd.output()
-}
-
-/// 静默执行（接受 &mut Command，用于链式调用场景）。
-pub fn output_hidden_ref(cmd: &mut Command) -> std::io::Result<Output> {
-    configure_hidden(cmd);
-    cmd.output()
 }
 
 /// PowerShell 通用参数前缀（隐藏窗口 + 非交互）。

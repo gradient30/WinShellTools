@@ -1,9 +1,11 @@
 use crate::error::{DstError, DstResult};
 use crate::file_txn::{recover_pending, FileTransaction};
-use crate::process_util::output_hidden;
+use crate::process_runner::{run as run_process, ProcessSpec};
+use crate::process_util::ps_base_args;
 use crate::workspace_path::WorkspacePath;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 static MY_DOCS_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
 
@@ -31,10 +33,15 @@ fn my_documents_path() -> Option<PathBuf> {
         }
     }
     let ref_opt: &Option<PathBuf> = MY_DOCS_CACHE.get_or_init(|| {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                    "-Command", "[Environment]::GetFolderPath('MyDocuments')"]);
-        let output = output_hidden(cmd);
+        let mut args = ps_base_args("powershell");
+        args.push("-Command".into());
+        args.push("[Environment]::GetFolderPath('MyDocuments')".into());
+        let output = run_process(ProcessSpec::new(
+            "powershell",
+            args,
+            Duration::from_secs(10),
+            64 * 1024,
+        ));
         match output {
             Ok(o) if o.status.success() => {
                 let path = String::from_utf8_lossy(&o.stdout).trim().to_string();

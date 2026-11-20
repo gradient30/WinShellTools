@@ -27,6 +27,7 @@ chrono = "0.4"
 # 凭证改用文件加密存储（.studio/config.json），避免引入 keyring crate。
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 futures-util = "0.3"
+tokio = { version = "1", features = ["time"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
 # M4 再加入：zip
 

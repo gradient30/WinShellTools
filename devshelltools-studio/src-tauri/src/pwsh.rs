@@ -2,8 +2,10 @@
 //! Studio 的解析、语法校验、命令自测优先使用 pwsh 7.x（`ps_parser::which_powershell`），
 //! 未安装时回退 Windows PowerShell 5.1；本模块供设置页展示状态并引导下载。
 
-use crate::process_util::{output_hidden, ps_base_args};
+use crate::process_runner::{run as run_process, ProcessSpec};
+use crate::process_util::ps_base_args;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 /// PowerShell 7 运行时状态
 #[derive(Debug, Clone, serde::Serialize)]
@@ -23,12 +25,15 @@ static CACHE: OnceLock<PwshStatus> = OnceLock::new();
 pub fn check_pwsh() -> PwshStatus {
     CACHE
         .get_or_init(|| {
-            let mut cmd = std::process::Command::new("pwsh");
-            for arg in ps_base_args("pwsh") {
-                cmd.arg(arg);
-            }
-            cmd.args(["-Command", "$PSVersionTable.PSVersion.ToString()"]);
-            match output_hidden(cmd) {
+            let mut args = ps_base_args("pwsh");
+            args.push("-Command".into());
+            args.push("$PSVersionTable.PSVersion.ToString()".into());
+            match run_process(ProcessSpec::new(
+                "pwsh",
+                args,
+                Duration::from_secs(5),
+                64 * 1024,
+            )) {
                 Ok(o) if o.status.success() => {
                     let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
                     if v.is_empty() {

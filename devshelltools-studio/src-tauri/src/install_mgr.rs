@@ -1,8 +1,9 @@
 use crate::error::{DstError, DstResult};
-use crate::process_util::{output_hidden, ps_base_args};
+use crate::process_runner::{run as run_process, ProcessSpec};
+use crate::process_util::ps_base_args;
 use crate::workspace;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::time::Duration;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct InstallStatus {
@@ -121,12 +122,15 @@ fn ensure_uninstall_script() -> DstResult<PathBuf> {
 pub fn install_module() -> DstResult<InstallResult> {
     let install_ps1 = ensure_install_script()?;
     let exe = "powershell";
-    let mut cmd = Command::new(exe);
-    for arg in ps_base_args(exe) {
-        cmd.arg(arg);
-    }
-    cmd.arg("-File").arg(&install_ps1);
-    let output = output_hidden(cmd)
+    let mut args = ps_base_args(exe);
+    args.push("-File".into());
+    args.push(install_ps1.to_string_lossy().to_string());
+    let output = run_process(ProcessSpec::new(
+        exe,
+        args,
+        Duration::from_secs(120),
+        8 * 1024 * 1024,
+    ))
         .map_err(|e| DstError::Other(format!("启动 install.ps1 失败：{e}")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -268,12 +272,15 @@ fn files_identical(from: &Path, to: &Path) -> bool {
 pub fn uninstall_module() -> DstResult<InstallResult> {
     let uninstall_ps1 = ensure_uninstall_script()?;
     let exe = "powershell";
-    let mut cmd = Command::new(exe);
-    for arg in ps_base_args(exe) {
-        cmd.arg(arg);
-    }
-    cmd.arg("-File").arg(&uninstall_ps1);
-    let output = output_hidden(cmd)
+    let mut args = ps_base_args(exe);
+    args.push("-File".into());
+    args.push(uninstall_ps1.to_string_lossy().to_string());
+    let output = run_process(ProcessSpec::new(
+        exe,
+        args,
+        Duration::from_secs(120),
+        8 * 1024 * 1024,
+    ))
         .map_err(|e| DstError::Other(format!("启动 uninstall.ps1 失败：{e}")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

@@ -1,9 +1,9 @@
 use crate::error::{DstError, DstResult};
-use crate::process_util::{output_hidden, ps_base_args};
+use crate::process_runner::{run as run_process, ProcessSpec};
 use crate::ps_render::validate_category_name;
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 /// 函数参数（从 AST ParamBlock 提取）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -345,13 +345,13 @@ $result | ConvertTo-Json -Depth 8 -Compress
         tmp_path_str = tmp_path_str
     );
 
-    let mut cmd = Command::new(exe);
-    for arg in ps_base_args(exe) {
-        cmd.arg(arg);
-    }
-    cmd.args(["-Command", &script]);
-    let output = output_hidden(cmd)
-        .map_err(|e| DstError::PsParse(format!("启动 powershell 失败：{e}")))?;
+    let output = run_process(ProcessSpec::powershell_with_program(
+        exe,
+        &script,
+        Duration::from_secs(30),
+        16 * 1024 * 1024,
+    ))
+    .map_err(|e| DstError::PsParse(format!("执行 powershell 失败：{e}")))?;
 
     // 清理临时文件
     let _ = std::fs::remove_file(&tmp_path);
@@ -484,13 +484,13 @@ foreach ($p in @({paths_ps})) {{ $items += Get-ParsedFile -Path $p }}
         paths_ps = paths_ps
     );
 
-    let mut cmd = Command::new(exe);
-    for arg in ps_base_args(exe) {
-        cmd.arg(arg);
-    }
-    cmd.args(["-Command", &script]);
-    let output = output_hidden(cmd)
-        .map_err(|e| DstError::PsParse(format!("启动 powershell 失败：{e}")))?;
+    let output = run_process(ProcessSpec::powershell_with_program(
+        exe,
+        &script,
+        Duration::from_secs(60),
+        32 * 1024 * 1024,
+    ))
+    .map_err(|e| DstError::PsParse(format!("执行 powershell 失败：{e}")))?;
 
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
@@ -545,9 +545,13 @@ foreach ($p in @({paths_ps})) {{ $items += Get-ParsedFile -Path $p }}
 fn which_powershell() -> DstResult<&'static str> {
     static EXE: OnceLock<&'static str> = OnceLock::new();
     Ok(*EXE.get_or_init(|| {
-        let mut cmd = std::process::Command::new("pwsh");
-        cmd.arg("--version");
-        if crate::process_util::output_hidden_ref(&mut cmd).is_ok() {
+        let probe = ProcessSpec::new(
+            "pwsh",
+            ["--version"],
+            Duration::from_secs(5),
+            4096,
+        );
+        if run_process(probe).is_ok() {
             "pwsh"
         } else {
             "powershell"
@@ -590,13 +594,13 @@ if ($errors -and $errors.Count -gt 0) {{
 }}
 "#
     );
-    let mut cmd = Command::new(exe);
-    for arg in ps_base_args(exe) {
-        cmd.arg(arg);
-    }
-    cmd.args(["-Command", &script]);
-    let output = output_hidden(cmd)
-        .map_err(|e| DstError::PsParse(format!("启动 powershell 失败：{e}")))?;
+    let output = run_process(ProcessSpec::powershell_with_program(
+        exe,
+        &script,
+        Duration::from_secs(20),
+        1024 * 1024,
+    ))
+    .map_err(|e| DstError::PsParse(format!("执行 powershell 失败：{e}")))?;
     let _ = std::fs::remove_file(&tmp_path);
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);

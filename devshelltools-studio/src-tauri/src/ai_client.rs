@@ -2,26 +2,86 @@ use crate::ai_config::{self, AiConfig, AiProtocol, ChatMessage};
 use crate::error::{DstError, DstResult};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
-/// 用户点击「停止」时置位；流式读取循环会尽快中断。
-static CHAT_CANCEL: AtomicBool = AtomicBool::new(false);
+static CURRENT_CANCEL: Mutex<Option<ChatCancellation>> = Mutex::new(None);
+static HTTP_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+
+#[derive(Clone)]
+pub struct ChatCancellation {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl ChatCancellation {
+    fn new() -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+}
 
 /// 请求取消当前 AI 对话（可在任意线程调用）。
 pub fn cancel_chat() {
-    CHAT_CANCEL.store(true, Ordering::SeqCst);
-}
-
-fn reset_chat_cancel() {
-    CHAT_CANCEL.store(false, Ordering::SeqCst);
-}
-
-fn chat_cancelled() -> bool {
-    CHAT_CANCEL.load(Ordering::SeqCst)
+    if let Some(cancellation) = CURRENT_CANCEL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+    {
+        cancellation.cancel();
+    }
 }
 
 fn cancelled_error() -> DstError {
     DstError::Other("已停止生成".into())
+}
+
+fn activate_cancellation(cancellation: &ChatCancellation) {
+    *CURRENT_CANCEL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(cancellation.clone());
+}
+
+fn http_client() -> DstResult<&'static reqwest::Client> {
+    HTTP_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(15))
+                .tcp_keepalive(Duration::from_secs(60))
+                .build()
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|error| DstError::AiClient(format!("创建 HTTP 客户端失败：{error}")))
+}
+
+async fn wait_with_cancel<T, F>(
+    future: F,
+    cancellation: &ChatCancellation,
+) -> DstResult<T>
+where
+    F: Future<Output = T>,
+{
+    tokio::pin!(future);
+    loop {
+        match tokio::time::timeout(Duration::from_millis(100), &mut future).await {
+            Ok(output) => return Ok(output),
+            Err(_) if cancellation.is_cancelled() => return Err(cancelled_error()),
+            Err(_) => {
+                // Keep polling the same future so cancellation stays responsive.
+            }
+        }
+    }
 }
 
 /// 一次流式请求的输入
@@ -57,7 +117,8 @@ pub async fn chat_stream_with_options(
     danger_mode: bool,
     extra_system: Option<&str>,
 ) -> DstResult<Vec<StreamEvent>> {
-    reset_chat_cancel();
+    let cancellation = ChatCancellation::new();
+    activate_cancellation(&cancellation);
     let mut system_content = ai_config::system_prompt_with_options(danger_mode);
     if let Some(extra) = extra_system {
         let trimmed = extra.trim();
@@ -73,8 +134,10 @@ pub async fn chat_stream_with_options(
     full_messages.extend(messages);
 
     match config.protocol {
-        AiProtocol::Openai => chat_openai(config, api_key, full_messages).await,
-        AiProtocol::Anthropic => chat_anthropic(config, api_key, full_messages).await,
+        AiProtocol::Openai => chat_openai(config, api_key, full_messages, &cancellation).await,
+        AiProtocol::Anthropic => {
+            chat_anthropic(config, api_key, full_messages, &cancellation).await
+        }
     }
 }
 
@@ -196,6 +259,7 @@ async fn chat_openai(
     config: &AiConfig,
     api_key: &str,
     messages: Vec<ChatMessage>,
+    cancellation: &ChatCancellation,
 ) -> DstResult<Vec<StreamEvent>> {
     let base = normalize_openai_base_url(&config.base_url);
     // DeepSeek V4 默认 thinking=enabled：Studio 审阅默认关闭，避免 reasoning 占满 max_tokens
@@ -206,6 +270,7 @@ async fn chat_openai(
         &base,
         messages.clone(),
         thinking.clone(),
+        cancellation,
     )
     .await
     {
@@ -213,7 +278,8 @@ async fn chat_openai(
         Err(e) if thinking.is_some() && is_thinking_param_rejected(&e) => {
             log::warn!("网关拒绝 thinking 字段，去掉后重试：{e}");
             thinking = None;
-            chat_openai_once(config, api_key, &base, messages.clone(), None).await?
+            chat_openai_once(config, api_key, &base, messages.clone(), None, cancellation)
+                .await?
         }
         Err(e) => return Err(e),
     };
@@ -229,6 +295,7 @@ async fn chat_openai(
                 &base,
                 messages.clone(),
                 thinking.clone(),
+                cancellation,
             )
             .await?;
         }
@@ -244,6 +311,7 @@ async fn chat_openai(
                 Some(ThinkingParam {
                     kind: "disabled".into(),
                 }),
+                cancellation,
             )
             .await?;
         }
@@ -273,8 +341,9 @@ async fn chat_openai_once(
     base: &str,
     messages: Vec<ChatMessage>,
     thinking: Option<ThinkingParam>,
+    cancellation: &ChatCancellation,
 ) -> DstResult<Vec<StreamEvent>> {
-    if chat_cancelled() {
+    if cancellation.is_cancelled() {
         return Err(cancelled_error());
     }
     let url = format!("{base}/chat/completions");
@@ -294,16 +363,20 @@ async fn chat_openai_once(
         );
     }
 
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(&url)
-        .bearer_auth(api_key)
-        .json(&body)
-        .send()
-        .await
-        .map_err(DstError::Http)?;
+    let client = http_client()?;
+    let request = client.post(&url).bearer_auth(api_key).json(&body);
+    let resp = wait_with_cancel(
+        async {
+            tokio::time::timeout(Duration::from_secs(60), request.send())
+                .await
+                .map_err(|_| DstError::AiClient("等待 AI 响应超时".into()))?
+                .map_err(DstError::Http)
+        },
+        cancellation,
+    )
+    .await??;
 
-    if chat_cancelled() {
+    if cancellation.is_cancelled() {
         return Err(cancelled_error());
     }
 
@@ -318,8 +391,20 @@ async fn chat_openai_once(
     let mut buffer = String::new();
     let mut finish_reason = String::new();
 
-    while let Some(chunk_result) = stream.next().await {
-        if chat_cancelled() {
+    loop {
+        let next = wait_with_cancel(
+            async {
+                tokio::time::timeout(Duration::from_secs(60), stream.next())
+                    .await
+                    .map_err(|_| DstError::AiClient("AI 流式响应空闲超时".into()))
+            },
+            cancellation,
+        )
+        .await??;
+        let Some(chunk_result) = next else {
+            break;
+        };
+        if cancellation.is_cancelled() {
             return Err(cancelled_error());
         }
         let chunk = chunk_result.map_err(DstError::Http)?;
@@ -375,7 +460,7 @@ async fn chat_openai_once(
             }
         }
     }
-    if chat_cancelled() {
+    if cancellation.is_cancelled() {
         return Err(cancelled_error());
     }
     events.push(StreamEvent {
@@ -454,8 +539,9 @@ async fn chat_anthropic(
     config: &AiConfig,
     api_key: &str,
     messages: Vec<ChatMessage>,
+    cancellation: &ChatCancellation,
 ) -> DstResult<Vec<StreamEvent>> {
-    if chat_cancelled() {
+    if cancellation.is_cancelled() {
         return Err(cancelled_error());
     }
     let url = format!("{}/messages", config.base_url.trim_end_matches('/'));
@@ -482,17 +568,24 @@ async fn chat_anthropic(
         thinking,
     };
 
-    let client = reqwest::Client::new();
-    let resp = client
+    let client = http_client()?;
+    let request = client
         .post(&url)
         .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
-        .json(&body)
-        .send()
-        .await
-        .map_err(DstError::Http)?;
+        .json(&body);
+    let resp = wait_with_cancel(
+        async {
+            tokio::time::timeout(Duration::from_secs(60), request.send())
+                .await
+                .map_err(|_| DstError::AiClient("等待 AI 响应超时".into()))?
+                .map_err(DstError::Http)
+        },
+        cancellation,
+    )
+    .await??;
 
-    if chat_cancelled() {
+    if cancellation.is_cancelled() {
         return Err(cancelled_error());
     }
 
@@ -506,8 +599,20 @@ async fn chat_anthropic(
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
 
-    while let Some(chunk_result) = stream.next().await {
-        if chat_cancelled() {
+    loop {
+        let next = wait_with_cancel(
+            async {
+                tokio::time::timeout(Duration::from_secs(60), stream.next())
+                    .await
+                    .map_err(|_| DstError::AiClient("AI 流式响应空闲超时".into()))
+            },
+            cancellation,
+        )
+        .await??;
+        let Some(chunk_result) = next else {
+            break;
+        };
+        if cancellation.is_cancelled() {
             return Err(cancelled_error());
         }
         let chunk = chunk_result.map_err(DstError::Http)?;
@@ -573,7 +678,7 @@ pub async fn list_models(config: &AiConfig, api_key: &str) -> DstResult<Vec<Stri
         AiProtocol::Anthropic => config.base_url.trim().trim_end_matches('/').to_string(),
     };
     let url = format!("{base}/models");
-    let client = reqwest::Client::new();
+    let client = http_client()?;
     let req = match config.protocol {
         AiProtocol::Openai => client.get(&url).bearer_auth(api_key),
         AiProtocol::Anthropic => client
@@ -581,10 +686,17 @@ pub async fn list_models(config: &AiConfig, api_key: &str) -> DstResult<Vec<Stri
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01"),
     };
-    let resp = req.send().await.map_err(DstError::Http)?;
+    let resp = tokio::time::timeout(Duration::from_secs(30), req.send())
+        .await
+        .map_err(|_| DstError::AiClient("等待模型列表超时".into()))?
+        .map_err(DstError::Http)?;
 
     if resp.status().is_success() {
-        let parsed: OpenaiModelsResponse = resp.json().await.map_err(DstError::Http)?;
+        let parsed: OpenaiModelsResponse =
+            tokio::time::timeout(Duration::from_secs(30), resp.json())
+                .await
+                .map_err(|_| DstError::AiClient("解析模型列表超时".into()))?
+                .map_err(DstError::Http)?;
         let mut ids: Vec<String> = parsed.data.into_iter().map(|m| m.id).collect();
         ids.sort();
         ids.dedup();
@@ -595,11 +707,15 @@ pub async fn list_models(config: &AiConfig, api_key: &str) -> DstResult<Vec<Stri
     }
 
     let status = resp.status();
-    let text = resp.text().await.unwrap_or_default();
+    let text = tokio::time::timeout(Duration::from_secs(30), resp.text())
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or_default();
 
     // Ollama Cloud / 本地：回退原生 tags 接口
     if matches!(config.protocol, AiProtocol::Openai) && is_ollama_base(&base) {
-        if let Ok(ids) = list_ollama_tags(&client, &base, api_key).await {
+        if let Ok(ids) = list_ollama_tags(client, &base, api_key).await {
             return Ok(ids);
         }
     }
@@ -639,15 +755,26 @@ async fn list_ollama_tags(
     if !api_key.trim().is_empty() {
         req = req.bearer_auth(api_key);
     }
-    let resp = req.send().await.map_err(DstError::Http)?;
+    let resp = tokio::time::timeout(Duration::from_secs(30), req.send())
+        .await
+        .map_err(|_| DstError::AiClient("等待 Ollama 模型列表超时".into()))?
+        .map_err(DstError::Http)?;
     if !resp.status().is_success() {
         let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
+        let text = tokio::time::timeout(Duration::from_secs(30), resp.text())
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
         return Err(DstError::Other(format!(
             "Ollama /api/tags 失败 {status}：{text}"
         )));
     }
-    let parsed: OllamaTagsResponse = resp.json().await.map_err(DstError::Http)?;
+    let parsed: OllamaTagsResponse =
+        tokio::time::timeout(Duration::from_secs(30), resp.json())
+            .await
+            .map_err(|_| DstError::AiClient("解析 Ollama 模型列表超时".into()))?
+            .map_err(DstError::Http)?;
     let mut ids: Vec<String> = parsed.models.into_iter().map(|m| m.name).collect();
     ids.sort();
     ids.dedup();
@@ -831,5 +958,14 @@ mod tests {
             },
         ];
         assert!(finalize_openai_events(events, true).is_ok());
+    }
+
+    #[test]
+    fn cancel_handle_only_affects_its_own_request() {
+        let first = ChatCancellation::new();
+        let second = ChatCancellation::new();
+        first.cancel();
+        assert!(first.is_cancelled());
+        assert!(!second.is_cancelled());
     }
 }
