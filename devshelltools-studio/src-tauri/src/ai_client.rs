@@ -1,4 +1,5 @@
 use crate::ai_config::{self, AiConfig, AiProtocol, ChatMessage};
+use crate::ai_budget::{cap_output_tokens, trim_messages, validate_endpoint, ContextBudget};
 use crate::ai_types::AiChatResult;
 use crate::error::{DstError, DstResult};
 use futures_util::StreamExt;
@@ -128,6 +129,7 @@ pub enum AiStreamEvent {
     Start,
     Delta { text: String },
     Reasoning { text: String },
+    Notice { message: String },
     Validation { result: AiChatResult },
     Done,
     Error { message: String },
@@ -192,6 +194,7 @@ async fn chat_stream_internal(
     extra_system: Option<&str>,
     on_event: Option<&Channel<AiStreamEvent>>,
 ) -> DstResult<Vec<StreamEvent>> {
+    validate_endpoint(&config.base_url, config.protocol)?;
     let cancellation = ChatCancellation::new();
     activate_cancellation(&cancellation);
     let mut system_content = ai_config::system_prompt_with_options(danger_mode);
@@ -199,14 +202,25 @@ async fn chat_stream_internal(
         let trimmed = extra.trim();
         if !trimmed.is_empty() {
             system_content.push_str("\n\n");
-            system_content.push_str(trimmed);
+            system_content.extend(trimmed.chars().take(20_000));
+        }
+    }
+    let trimmed = trim_messages(messages, ContextBudget::default());
+    if trimmed.omitted_count > 0 {
+        let message = format!(
+            "上下文较长，已省略较早的 {} 条消息（约 {} 字符）",
+            trimmed.omitted_count, trimmed.approximated_chars
+        );
+        log::info!("{message}");
+        if let Some(channel) = on_event {
+            let _ = channel.send(AiStreamEvent::Notice { message });
         }
     }
     let mut full_messages = vec![ChatMessage {
         role: "system".into(),
         content: system_content,
     }];
-    full_messages.extend(messages);
+    full_messages.extend(trimmed.messages);
 
     match config.protocol {
         AiProtocol::Openai => {
@@ -323,7 +337,7 @@ fn effective_max_tokens(base_url: &str, model: &str, configured: u32) -> u32 {
     let deepseek = base_url.to_lowercase().contains("deepseek.com")
         || model.to_lowercase().starts_with("deepseek");
     let floor = if deepseek { 16384 } else { 2048 };
-    configured.max(floor)
+    cap_output_tokens(configured.max(floor))
 }
 
 #[derive(Deserialize)]
@@ -356,6 +370,7 @@ async fn chat_openai(
     let base = normalize_openai_base_url(&config.base_url);
     // DeepSeek V4 默认 thinking=enabled：Studio 审阅默认关闭，避免 reasoning 占满 max_tokens
     let mut thinking = deepseek_disable_thinking(&base, &config.model);
+    let mut compatibility_retried = false;
     let mut events = match chat_openai_once(
         config,
         api_key,
@@ -368,9 +383,10 @@ async fn chat_openai(
     .await
     {
         Ok(e) => e,
-        Err(e) if thinking.is_some() && is_thinking_param_rejected(&e) => {
-            log::warn!("网关拒绝 thinking 字段，去掉后重试：{e}");
+        Err(error) if thinking.is_some() && is_thinking_param_rejected(&error) => {
+            log::warn!("网关拒绝 thinking 字段，去掉后重试：{error}");
             thinking = None;
+            compatibility_retried = true;
             chat_openai_once(
                 config,
                 api_key,
@@ -380,44 +396,28 @@ async fn chat_openai(
                 cancellation,
                 on_event,
             )
-                .await?
+            .await?
         }
         Err(e) => return Err(e),
     };
 
-    if openai_needs_thinking_retry(&events) {
-        if thinking.as_ref().map(|t| t.kind.as_str()) != Some("disabled") {
-            thinking = Some(ThinkingParam {
-                kind: "disabled".into(),
-            });
-            events = chat_openai_once(
-                config,
-                api_key,
-                &base,
-                messages.clone(),
-                thinking.clone(),
-                cancellation,
-                on_event,
-            )
-            .await?;
-        }
-        if openai_needs_thinking_retry(&events) {
-            // 仍被 length 截断：抬高输出预算再试（并继续关闭思考）
-            let mut boosted = config.clone();
-            boosted.max_tokens = config.max_tokens.max(16384).saturating_mul(2).min(65536);
-            events = chat_openai_once(
-                &boosted,
-                api_key,
-                &base,
-                messages,
-                Some(ThinkingParam {
-                    kind: "disabled".into(),
-                }),
-                cancellation,
-                on_event,
-            )
-            .await?;
-        }
+    if !compatibility_retried
+        && openai_needs_thinking_retry(&events)
+        && thinking.as_ref().map(|value| value.kind.as_str()) != Some("disabled")
+    {
+        thinking = Some(ThinkingParam {
+            kind: "disabled".into(),
+        });
+        events = chat_openai_once(
+            config,
+            api_key,
+            &base,
+            messages,
+            thinking,
+            cancellation,
+            on_event,
+        )
+        .await?;
     }
 
     let saw_reasoning = events.iter().any(|e| e.kind == "reasoning");
@@ -806,6 +806,7 @@ struct OpenaiModelItem {
 /// Anthropic 官方 API 也可用 /v1/models（需 x-api-key 头）。
 /// Ollama（含 Cloud）在 OpenAI `/models` 失败时回退原生 `/api/tags`。
 pub async fn list_models(config: &AiConfig, api_key: &str) -> DstResult<Vec<String>> {
+    validate_endpoint(&config.base_url, config.protocol)?;
     let base = match config.protocol {
         AiProtocol::Openai => normalize_openai_base_url(&config.base_url),
         AiProtocol::Anthropic => config.base_url.trim().trim_end_matches('/').to_string(),
@@ -1022,6 +1023,10 @@ mod tests {
         assert_eq!(
             effective_max_tokens("https://proxy.example/v1", "deepseek-v4-flash", 4096),
             16384
+        );
+        assert_eq!(
+            effective_max_tokens("https://api.openai.com/v1", "gpt-4o", 65_536),
+            32_768
         );
     }
 

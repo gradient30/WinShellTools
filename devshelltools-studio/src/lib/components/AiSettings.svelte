@@ -31,6 +31,27 @@
   let filteredModels = $derived(
     modelOptions.filter((m) => m.toLowerCase().includes(modelSearch.trim().toLowerCase()))
   );
+  let endpointWarning = $derived.by(() => {
+    const value = editing?.base_url?.trim() ?? "";
+    if (!value.toLowerCase().startsWith("http://")) return "";
+    try {
+      const host = new URL(value).hostname.toLowerCase();
+      const privateHost =
+        host === "localhost" ||
+        host.endsWith(".local") ||
+        host.endsWith(".lan") ||
+        host === "127.0.0.1" ||
+        host === "::1" ||
+        /^10\./.test(host) ||
+        /^192\.168\./.test(host) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+      return privateHost
+        ? "当前为本机/私有网络 HTTP；配置和 Key 仅在该网络内传输。"
+        : "公网 HTTP 端点不允许保存，请改用 HTTPS。";
+    } catch {
+      return "Base URL 格式无效。";
+    }
+  });
 
   /**
    * 保存可用条件：
@@ -406,6 +427,9 @@
           {#if endpointNote}
             <p class="text-xs text-dst-warning-fg mt-1">{endpointNote}</p>
           {/if}
+          {#if endpointWarning}
+            <p class="text-xs text-dst-warning-fg mt-1">{endpointWarning}</p>
+          {/if}
         </label>
         <div class="block">
           <div class="flex items-center justify-between">
@@ -441,11 +465,11 @@
           {/if}
         </div>
         <label class="block">
-          <span class="text-xs text-dst-fg-muted">max_tokens（输出上限；DeepSeek 建议 ≥16384，Studio 会自动关闭思考）</span>
+          <span class="text-xs text-dst-fg-muted">max_tokens（输出上限，最大 32768；DeepSeek 建议 ≥16384）</span>
           <input
             type="number"
             min="256"
-            max="65536"
+            max="32768"
             step="256"
             bind:value={editing.max_tokens}
             class="mt-1 w-full px-2 py-1.5 text-sm bg-dst-elevated border border-dst-border rounded font-mono" />

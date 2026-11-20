@@ -1,4 +1,5 @@
 use crate::error::{DstError, DstResult};
+use crate::ai_budget::{cap_output_tokens, validate_endpoint, MAX_OUTPUT_TOKENS};
 use crate::key_store;
 use crate::workspace;
 use crate::workspace_path::validate_component;
@@ -207,6 +208,7 @@ pub fn get_profile(id: &str) -> DstResult<AiProfile> {
 
 pub fn save_profile(profile: AiProfile, key: Option<&str>) -> DstResult<AiProfile> {
     validate_component(&profile.id, "AI Profile ID")?;
+    validate_profile_config(&profile)?;
     let mut store = load_profiles_store()?;
     if let Some(k) = key {
         if !k.trim().is_empty() {
@@ -263,6 +265,7 @@ pub fn load_config() -> DstResult<AiConfig> {
 
 /// 保存 AI 配置到默认 Profile。
 pub fn save_config(cfg: &AiConfig) -> DstResult<()> {
+    validate_config_fields(cfg)?;
     let mut store = load_profiles_store()?;
     let id = store
         .default_profile_id
@@ -284,6 +287,31 @@ pub fn save_config(cfg: &AiConfig) -> DstResult<()> {
     }
     store.default_profile_id = Some(id);
     save_profiles_store(&store)
+}
+
+pub fn validate_profile_config(profile: &AiProfile) -> DstResult<()> {
+    validate_config_fields(&AiConfig::from(profile))
+}
+
+fn validate_config_fields(config: &AiConfig) -> DstResult<()> {
+    validate_endpoint(&config.base_url, config.protocol)?;
+    if config.model.trim().is_empty() {
+        return Err(DstError::AiClient("AI 模型不能为空".into()));
+    }
+    if !config.temperature.is_finite() || !(0.0..=2.0).contains(&config.temperature) {
+        return Err(DstError::AiClient(
+            "AI temperature 必须在 0 到 2 之间".into(),
+        ));
+    }
+    if config.max_tokens == 0 || config.max_tokens > MAX_OUTPUT_TOKENS {
+        return Err(DstError::AiClient(format!(
+            "max_tokens 必须在 1 到 {MAX_OUTPUT_TOKENS} 之间"
+        )));
+    }
+    if cap_output_tokens(config.max_tokens) != config.max_tokens {
+        return Err(DstError::AiClient("max_tokens 超出允许范围".into()));
+    }
+    Ok(())
 }
 
 /// 读取 API key（默认 Profile）。
@@ -493,5 +521,27 @@ mod tests {
             key_configured: false,
         };
         assert!(save_profile(profile, Some("secret")).is_err());
+    }
+
+    #[test]
+    fn profile_save_rejects_public_http_and_oversized_output() {
+        let base = AiProfile {
+            id: "safe-id".into(),
+            name: "test".into(),
+            protocol: AiProtocol::Openai,
+            base_url: "http://example.com/v1".into(),
+            model: "model".into(),
+            temperature: 0.7,
+            max_tokens: 8192,
+            key_configured: false,
+        };
+        assert!(save_profile(base.clone(), None).is_err());
+
+        let oversized = AiProfile {
+            base_url: "https://example.com/v1".into(),
+            max_tokens: 65_536,
+            ..base
+        };
+        assert!(save_profile(oversized, None).is_err());
     }
 }

@@ -492,6 +492,9 @@
       if (event.type === "error" && !event.message.includes("已停止生成")) {
         errMsg = event.message;
       }
+      if (event.type === "notice") {
+        showToast(event.message, "info", 5000);
+      }
     };
 
     const apiMessages = toApiMessages(messages);

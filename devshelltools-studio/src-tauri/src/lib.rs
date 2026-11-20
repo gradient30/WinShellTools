@@ -1,4 +1,5 @@
 pub mod ai_client;
+pub mod ai_budget;
 pub mod ai_config;
 pub mod ai_presets;
 pub mod ai_types;

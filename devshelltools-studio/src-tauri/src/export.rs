@@ -503,7 +503,12 @@ pub fn preview_bundle(source_dir: &str) -> DstResult<BundlePreview> {
         match parse {
             Ok(src_store) => {
                 let local = ai_config::load_profiles_store()?;
+                let mut invalid = 0;
                 for p in &src_store.profiles {
+                    if ai_config::validate_profile_config(p).is_err() {
+                        invalid += 1;
+                        continue;
+                    }
                     if local.profiles.iter().any(|x| x.id == p.id) {
                         ai_existing += 1;
                     } else {
@@ -513,12 +518,20 @@ pub fn preview_bundle(source_dir: &str) -> DstResult<BundlePreview> {
                 items.push(BundleItem {
                     rel: AI_PROFILES_NAME.into(),
                     kind: "ai".into(),
-                    action: if ai_new > 0 { "add".into() } else { "same".into() },
-                    checked: ai_new > 0,
+                    action: if invalid > 0 {
+                        "invalid".into()
+                    } else if ai_new > 0 {
+                        "add".into()
+                    } else {
+                        "same".into()
+                    },
+                    checked: ai_new > 0 && invalid == 0,
                     commands: 0,
                     syntax_ok: true,
-                    safety_ok: true,
-                    note: format!("新增 {ai_new} 个 · 已存在 {ai_existing} 个（不含 API Key）"),
+                    safety_ok: invalid == 0,
+                    note: format!(
+                        "新增 {ai_new} 个 · 已存在 {ai_existing} 个 · 无效 {invalid} 个（不含 API Key）"
+                    ),
                 });
             }
             Err(e) => {
@@ -575,6 +588,12 @@ pub fn import_bundle(source_dir: &str, selection: &[String]) -> DstResult<Import
                     continue;
                 }
                 let mut p = p;
+                if let Err(error) = ai_config::validate_profile_config(&p) {
+                    result
+                        .errors
+                        .push(format!("AI Profile {}: {error}", p.id));
+                    continue;
+                }
                 p.key_configured = false; // Key 永不随包导入
                 local.profiles.push(p);
                 result.ai_added += 1;
