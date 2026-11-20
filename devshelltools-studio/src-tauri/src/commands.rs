@@ -113,11 +113,11 @@ pub async fn create_category(file_name: String, content: String, _message: Strin
         if workspace::read_file(&rel).is_ok() {
             return Err(DstError::Other(format!("分类文件已存在：{file_name}")));
         }
-        let report = safety::check(&content)?;
+        let parsed = ps_parser::parse_ps1(&content)?;
+        let report = safety::check_parsed(&parsed)?;
         if !report.ok {
             return Err(DstError::SafetyBlocked(report.violations.join("; ")));
         }
-        let parsed = ps_parser::parse_ps1(&content)?;
         workspace::write_file(&rel, &content)?;
         sync::regenerate_with_parsed(&file_name, Some(parsed))?;
         workspace::touch_last_sync()?;
@@ -150,11 +150,11 @@ pub async fn update_category_file(
     let ack = acknowledge_danger.unwrap_or(false);
     run_blocking(move || {
         let rel = format!("Public/{file_name}");
-        let report = safety::check_with_options(&content, ack)?;
+        let parsed = ps_parser::parse_ps1(&content)?;
+        let report = safety::check_parsed_with_options(&parsed, ack)?;
         if !report.ok {
             return Err(DstError::SafetyBlocked(report.violations.join("; ")));
         }
-        let parsed = ps_parser::parse_ps1(&content)?;
         workspace::write_file(&rel, &content)?;
         sync::regenerate_with_parsed(&file_name, Some(parsed))?;
         workspace::touch_last_sync()?;
@@ -280,8 +280,8 @@ pub async fn consistency_check() -> DstResult<consistency::ConsistencyReport> {
 }
 
 #[tauri::command]
-pub fn safety_check(code: String) -> DstResult<safety::SafetyReport> {
-    safety::check(&code)
+pub async fn safety_check(code: String) -> DstResult<safety::SafetyReport> {
+    run_blocking(move || safety::check(&code)).await
 }
 
 #[tauri::command]
@@ -468,7 +468,8 @@ pub async fn ai_chat_with_validation(
             let mut functions: Vec<String> = vec![];
             let mut category: Option<String> = None;
             let mut warnings: Vec<String> = vec![];
-            let (syntax_ok, syntax_err) = match ps_parser::parse_ps1(code) {
+            let parsed_result = ps_parser::parse_ps1(code);
+            let (syntax_ok, syntax_err) = match &parsed_result {
                 Ok(p) if p.parse_errors.is_empty() => {
                     category = p.category.as_ref().map(|c| c.name.clone());
                     for f in &p.functions {
@@ -504,12 +505,24 @@ pub async fn ai_chat_with_validation(
                     warnings.push(format!("{n} 与已有命令重名，插入将覆盖同名函数"));
                 }
             }
-            let safety_report = safety::check_with_options(code, danger).unwrap_or(
-                safety::SafetyReport {
+            let safety_report = match &parsed_result {
+                Ok(parsed) if parsed.parse_errors.is_empty() => {
+                    safety::check_parsed_with_options(parsed, danger).unwrap_or(
+                        safety::SafetyReport {
+                            ok: false,
+                            violations: vec!["安全检查内部错误".into()],
+                        },
+                    )
+                }
+                Ok(parsed) => safety::SafetyReport {
                     ok: false,
-                    violations: vec!["安全检查内部错误".into()],
+                    violations: parsed.parse_errors.clone(),
                 },
-            );
+                Err(error) => safety::SafetyReport {
+                    ok: false,
+                    violations: vec![error.to_string()],
+                },
+            };
             validated.push(ValidatedCodeBlock {
                 code: code.clone(),
                 syntax_ok,

@@ -75,15 +75,17 @@ pub fn import_scripts(source_dir: &str) -> DstResult<ImportResult> {
             }
         };
 
-        // 语法校验
-        if let Err(e) = ps_parser::validate_syntax(&content) {
-            errors.push(format!("{name}: 语法错误 - {e}"));
-            skipped.push(name);
-            continue;
-        }
+        let parsed = match ps_parser::parse_ps1(&content) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                errors.push(format!("{name}: 语法错误 - {e}"));
+                skipped.push(name);
+                continue;
+            }
+        };
 
         // 安全校验
-        match safety::check(&content) {
+        match safety::check_parsed(&parsed) {
             Ok(report) if report.ok => {}
             Ok(report) => {
                 errors.push(format!("{name}: 安全拦截 - {}", report.violations.join("；")));
@@ -411,36 +413,36 @@ pub fn preview_bundle(source_dir: &str) -> DstResult<BundlePreview> {
 
     // 一次 PowerShell 批量容错解析：语法 + 公共命令数
     let paths: Vec<PathBuf> = scripts.iter().map(|(p, _)| p.clone()).collect();
-    let parsed_map: std::collections::HashMap<String, (bool, usize, String)> =
+    let parsed_map: std::collections::HashMap<String, ps_parser::ParsedPsFile> =
         ps_parser::parse_public_batch_lenient(&paths)?
             .into_iter()
-            .map(|(name, parsed)| {
-                let syntax_ok = parsed.parse_errors.is_empty();
-                let commands = parsed
-                    .functions
-                    .iter()
-                    .filter(|f| sync::is_exported(&f.name))
-                    .count();
-                let err = parsed.parse_errors.join("; ");
-                (format!("Public/{name}"), (syntax_ok, commands, err))
-            })
+            .map(|(name, parsed)| (format!("Public/{name}"), parsed))
             .collect();
 
     let ws = workspace::workspace_root();
     let mut items: Vec<BundleItem> = vec![];
     for (path, rel) in &scripts {
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(e) => {
-                items.push(invalid_item(rel, "category", format!("读取失败：{e}")));
-                continue;
-            }
+        let parsed = parsed_map.get(rel);
+        let syntax_ok = parsed.is_some_and(|parsed| parsed.parse_errors.is_empty());
+        let commands = parsed
+            .map(|parsed| {
+                parsed
+                    .functions
+                    .iter()
+                    .filter(|f| sync::is_exported(&f.name))
+                    .count()
+            })
+            .unwrap_or(0);
+        let err = parsed
+            .map(|parsed| parsed.parse_errors.join("; "))
+            .unwrap_or_else(|| "未能解析".into());
+        let report = match parsed {
+            Some(parsed) if syntax_ok => safety::check_parsed(parsed)?,
+            _ => safety::SafetyReport {
+                ok: false,
+                violations: vec![],
+            },
         };
-        let (syntax_ok, commands, err) = parsed_map
-            .get(rel)
-            .cloned()
-            .unwrap_or((false, 0, "未能解析".into()));
-        let report = safety::check(&content)?;
         let mut item = BundleItem {
             rel: rel.clone(),
             kind: "category".into(),
@@ -467,8 +469,15 @@ pub fn preview_bundle(source_dir: &str) -> DstResult<BundlePreview> {
     let common_src = source.join("Private").join("Common.ps1");
     if common_src.exists() {
         let content = std::fs::read_to_string(&common_src)?;
-        let syntax_ok = ps_parser::validate_syntax(&content).is_ok();
-        let report = safety::check(&content)?;
+        let parsed = ps_parser::parse_ps1(&content);
+        let syntax_ok = parsed.is_ok();
+        let report = match &parsed {
+            Ok(parsed) => safety::check_parsed(parsed)?,
+            Err(_) => safety::SafetyReport {
+                ok: false,
+                violations: vec![],
+            },
+        };
         let mut item = BundleItem {
             rel: "Private/Common.ps1".into(),
             kind: "private".into(),
@@ -618,11 +627,14 @@ pub fn import_bundle(source_dir: &str, selection: &[String]) -> DstResult<Import
                 continue;
             }
         };
-        if let Err(e) = ps_parser::validate_syntax(&content) {
-            result.errors.push(format!("{sel}: 语法错误 {e}"));
-            continue;
-        }
-        match safety::check(&content) {
+        let parsed = match ps_parser::parse_ps1(&content) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                result.errors.push(format!("{sel}: 语法错误 {e}"));
+                continue;
+            }
+        };
+        match safety::check_parsed(&parsed) {
             Ok(r) if r.ok => {}
             Ok(r) => {
                 result.errors.push(format!("{sel}: 安全拦截 {}", r.violations.join("；")));

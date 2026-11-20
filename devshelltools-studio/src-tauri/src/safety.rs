@@ -1,4 +1,5 @@
 use crate::error::DstResult;
+use crate::ps_parser::{self, ParsedPsFile, PsCommand};
 
 /// 安全检查结果。
 #[derive(Debug, Clone, serde::Serialize)]
@@ -21,45 +22,29 @@ pub fn check_with_options(code: &str, danger_mode: bool) -> DstResult<SafetyRepo
             violations: vec![],
         });
     }
+    let parsed = ps_parser::parse_ps1(code)?;
+    check_parsed(&parsed)
+}
 
+/// 使用已经解析的 AST 结果执行安全判定，避免重复启动 PowerShell。
+pub fn check_parsed(parsed: &ParsedPsFile) -> DstResult<SafetyReport> {
+    check_parsed_with_options(parsed, false)
+}
+
+pub fn check_parsed_with_options(
+    parsed: &ParsedPsFile,
+    danger_mode: bool,
+) -> DstResult<SafetyReport> {
+    if danger_mode {
+        return Ok(SafetyReport {
+            ok: true,
+            violations: vec![],
+        });
+    }
     let mut violations = vec![];
-
-    // 规则1：禁止 git push --force / --force-with-lease
-    if contains_word(code, "--force") || contains_word(code, "--force-with-lease") {
-        if code.contains("push") {
-            violations.push("禁止 git push --force / --force-with-lease".into());
-        }
+    for command in &parsed.commands {
+        check_command(command, &mut violations);
     }
-    // 规则2：禁止 git reset --hard（须同时出现 git reset 与 --hard，避免 preset 等误匹配 reset 子串）
-    if code.contains("git reset") && contains_word(code, "--hard") {
-        violations.push("禁止 git reset --hard".into());
-    }
-    // 规则3：禁止 git clean -fd / -f（真实删除）
-    if code.contains("clean") && (contains_word(code, "-fd") || contains_word(code, "-f")) {
-        // 允许 -nd / -ndx（dry-run）
-        if !contains_word(code, "-nd") && !contains_word(code, "-ndx") {
-            violations.push("禁止 git clean -f / -fd（真实删除），只允许 -nd / -ndx 预览".into());
-        }
-    }
-    // 规则4：Stop-Process 必须有 -Confirm 或在 SupportsShouldProcess 函数内
-    if code.contains("Stop-Process") {
-        let lower = code.to_lowercase();
-        if !lower.contains("shouldprocess") && !lower.contains("-confirm") && !lower.contains("-force") {
-            violations.push("Stop-Process 必须配合 -Confirm 或 SupportsShouldProcess".into());
-        }
-    }
-    // 规则5：禁止修改用户级环境变量（SetEnvironmentVariable ... "User"）
-    if code.contains("SetEnvironmentVariable") && code.contains("\"User\"") {
-        violations.push("禁止 [Environment]::SetEnvironmentVariable(..., \"User\")，只允许进程级".into());
-    }
-    // 规则6：禁止「同一条」Remove-Item 同时带 -Recurse 与 -Force。
-    // 注意：不能整文件搜三个子串——Files.ps1 的 sz 使用 Get-ChildItem -Recurse -Force，
-    // 与另一函数的 Remove-Item -Force 并存时会误报。
-    if has_remove_item_recurse_force(code) && !code.to_lowercase().contains("uninstall") {
-        violations.push("禁止 Remove-Item -Recurse -Force（危险删除）".into());
-    }
-    // 规则7：禁止 Start-Process -Verb RunAs 之外的提权，且 super 已是特例
-    // （不拦截，super 已存在）
 
     Ok(SafetyReport {
         ok: violations.is_empty(),
@@ -67,68 +52,149 @@ pub fn check_with_options(code: &str, danger_mode: bool) -> DstResult<SafetyRepo
     })
 }
 
-/// 检查代码是否含某"词"（前后为非单词字符边界），避免子串误匹配。
-fn contains_word(haystack: &str, needle: &str) -> bool {
-    let mut start = 0;
-    while let Some(idx) = haystack[start..].find(needle) {
-        let abs = start + idx;
-        let before_ok = abs == 0 || !haystack.as_bytes()[abs - 1].is_ascii_alphanumeric();
-        let after_idx = abs + needle.len();
-        let after_ok = after_idx >= haystack.len()
-            || !haystack.as_bytes()[after_idx].is_ascii_alphanumeric();
-        if before_ok && after_ok {
-            return true;
-        }
-        start = abs + 1;
+fn check_command(command: &PsCommand, violations: &mut Vec<String>) {
+    if command.dynamic || command.name.trim().is_empty() {
+        violations.push("默认禁止动态命令调用；请使用可静态检查的命令名称".into());
+        return;
     }
-    false
+
+    let name = command.name.to_ascii_lowercase();
+    let name = name.strip_suffix(".exe").unwrap_or(&name);
+
+    if name == "iex" || name == "invoke-expression" {
+        violations.push("默认禁止 Invoke-Expression 动态执行".into());
+        return;
+    }
+
+    if name == "git" {
+        check_git(command, violations);
+    }
+
+    if is_remove_item(name)
+        && has_parameter(&command.args, "recurse", 'r')
+        && has_parameter(&command.args, "force", 'f')
+    {
+        violations.push("禁止 Remove-Item 同时使用 -Recurse 与 -Force（危险删除）".into());
+    }
+
+    if (name == "stop-process" || name == "spps" || name == "kill")
+        && !command.within_should_process
+        && !has_parameter(&command.args, "confirm", 'c')
+    {
+        violations.push("Stop-Process 必须配合 -Confirm 或 SupportsShouldProcess".into());
+    }
+
+    if name == "setenvironmentvariable"
+        && command
+            .args
+            .iter()
+            .any(|arg| arg.eq_ignore_ascii_case("User"))
+    {
+        violations.push("禁止 SetEnvironmentVariable 写入 User 级环境变量".into());
+    }
 }
 
-/// 提取每个 `Remove-Item` 调用的参数片段（支持行续接 `），再判断是否同时含 -Recurse 与 -Force。
-fn has_remove_item_recurse_force(code: &str) -> bool {
-    let lower = code.to_lowercase();
-    let mut search = 0;
-    while let Some(rel) = lower[search..].find("remove-item") {
-        let start = search + rel;
-        let before_ok =
-            start == 0 || !code.as_bytes()[start - 1].is_ascii_alphanumeric();
-        let after = start + "remove-item".len();
-        let after_ok =
-            after >= code.len() || !code.as_bytes()[after].is_ascii_alphanumeric();
-        if !before_ok || !after_ok {
-            search = start + 1;
-            continue;
+fn check_git(command: &PsCommand, violations: &mut Vec<String>) {
+    let Some((subcommand, index)) = git_subcommand(&command.args) else {
+        return;
+    };
+    let args = &command.args[index + 1..];
+    match subcommand.as_str() {
+        "push" if args.iter().any(|arg| force_push_flag(arg)) =>
+        {
+            violations.push("禁止 git push --force / --force-with-lease".into());
         }
-        let call = extract_ps_command_call(code, start);
-        let call_lower = call.to_lowercase();
-        if contains_word(&call_lower, "-recurse") && contains_word(&call_lower, "-force") {
-            return true;
+        "reset" if has_parameter(args, "hard", '\0') => {
+            violations.push("禁止 git reset --hard".into());
         }
-        search = start + 1;
+        "clean" if real_clean_flag(args) => {
+            violations.push("禁止 git clean -f / -fd（真实删除），只允许 -n 预览".into());
+        }
+        _ => {}
     }
-    false
 }
 
-/// 从 cmdlet 起始位置提取单次调用文本（含反引号续行，遇 `;` / 未续行换行结束）。
-fn extract_ps_command_call(code: &str, start: usize) -> String {
-    let rest = &code[start..];
-    let mut out = String::new();
-    for line in rest.lines() {
-        let trimmed_end = line.trim_end();
-        if trimmed_end.ends_with('`') {
-            out.push_str(trimmed_end.trim_end_matches('`').trim_end());
-            out.push(' ');
+fn git_subcommand(args: &[String]) -> Option<(String, usize)> {
+    let takes_value = ["-c", "-C", "--git-dir", "--work-tree", "--namespace"];
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        if takes_value.iter().any(|value| arg.eq_ignore_ascii_case(value)) {
+            index += 2;
             continue;
         }
-        // 同一行可能有 `cmd; other` —— 只取到第一个分号（字符串内分号极少见于此场景）
-        if let Some(semi) = trimmed_end.find(';') {
-            out.push_str(trimmed_end[..semi].trim_end());
-        } else {
-            out.push_str(trimmed_end);
+        if arg.starts_with("--git-dir=")
+            || arg.starts_with("--work-tree=")
+            || arg.starts_with("--namespace=")
+            || (arg.starts_with("-c") && arg.len() > 2)
+            || (arg.starts_with("-C") && arg.len() > 2)
+            || arg.starts_with('-')
+        {
+            index += 1;
+            continue;
         }
-        break;
+        return Some((arg.to_ascii_lowercase(), index));
     }
-    out
+    None
+}
+
+fn real_clean_flag(args: &[String]) -> bool {
+    let mut force = false;
+    let mut dry_run = false;
+    for arg in args {
+        if !arg.starts_with('-') || arg.starts_with("--") {
+            continue;
+        }
+        let flags = arg.trim_start_matches('-').to_ascii_lowercase();
+        if flags.contains('f') {
+            force = true;
+        }
+        if flags.contains('n') {
+            dry_run = true;
+        }
+    }
+    force && !dry_run
+}
+
+fn is_remove_item(name: &str) -> bool {
+    matches!(
+        name,
+        "remove-item" | "ri" | "rm" | "del" | "erase" | "rd" | "rmdir"
+    )
+}
+
+fn has_parameter(args: &[String], long: &str, short: char) -> bool {
+    args.iter().any(|arg| {
+        if !arg.starts_with('-') {
+            return false;
+        }
+        if arg.starts_with("--") {
+            return arg
+                .trim_start_matches('-')
+                .split('=')
+                .next()
+                .is_some_and(|name| name.eq_ignore_ascii_case(long));
+        }
+        let value = arg
+            .trim_start_matches('-')
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if value.chars().count() == 1 {
+            return short != '\0' && value.starts_with(short);
+        }
+        (value.len() <= 3 && short != '\0' && value.contains(short))
+            || (value.len() >= 2 && long.to_ascii_lowercase().starts_with(&value))
+    })
+}
+
+fn force_push_flag(arg: &str) -> bool {
+    let lower = arg.to_ascii_lowercase();
+    if lower.starts_with("--force") {
+        return true;
+    }
+    arg.starts_with('-') && !arg.starts_with("--") && lower[1..].contains('f')
 }
 
 #[cfg(test)]
@@ -259,5 +325,47 @@ function rmf {
             "跨命令的 -Recurse/-Force 不应误报：{:?}",
             r.violations
         );
+    }
+
+    #[test]
+    fn git_global_options_do_not_bypass_hard_reset_rule() {
+        let report = check("& git -c x=y reset --hard").unwrap();
+        assert!(!report.ok);
+    }
+
+    #[test]
+    fn git_executable_does_not_bypass_clean_rule() {
+        let report = check("git.exe clean -fd").unwrap();
+        assert!(!report.ok);
+    }
+
+    #[test]
+    fn dynamic_invocation_is_blocked_by_default() {
+        let report = check("$cmd = 'git'; & $cmd reset --hard").unwrap();
+        assert!(!report.ok);
+    }
+
+    #[test]
+    fn invoke_expression_is_blocked_by_default() {
+        let report = check("Invoke-Expression 'git reset --hard'").unwrap();
+        assert!(!report.ok);
+    }
+
+    #[test]
+    fn same_call_remove_recursion_and_force_is_blocked() {
+        let report = check("Remove-Item -LiteralPath $p -Recurse -Force").unwrap();
+        assert!(!report.ok);
+    }
+
+    #[test]
+    fn remove_item_alias_with_combined_flags_is_blocked() {
+        let report = check("ri -rf $p").unwrap();
+        assert!(!report.ok);
+    }
+
+    #[test]
+    fn combined_force_push_flag_is_blocked() {
+        let report = check("git push -fu origin main").unwrap();
+        assert!(!report.ok);
     }
 }

@@ -430,7 +430,11 @@ pub fn upsert_function(
     }
 
     let block = build_function_block(&draft);
-    assert_safety_ok(safety::check_with_options(&block, acknowledge_danger)?)?;
+    let parsed_block = ps_parser::parse_ps1(&block)?;
+    assert_safety_ok(safety::check_parsed_with_options(
+        &parsed_block,
+        acknowledge_danger,
+    )?)?;
 
     let block_tmp = write_temp_ps1(&block)?;
     let path_escaped = file_path.to_string_lossy().replace('\'', "''");
@@ -523,7 +527,8 @@ pub fn test_function(file_name: &str, func_name: &str) -> DstResult<FunctionTest
     } else {
         func.first_example.clone()
     };
-    assert_safety_ok(safety::check(&example)?)?;
+    let example_parsed = ps_parser::parse_ps1(&example)?;
+    assert_safety_ok(safety::check_parsed(&example_parsed)?)?;
 
     let common = workspace::read_file("Private/Common.ps1")?;
     let common_tmp = write_temp_ps1(&common)?;
@@ -571,12 +576,11 @@ pub fn apply_code_to_category_with_options(
     code: &str,
     danger_mode: bool,
 ) -> DstResult<Vec<String>> {
-    let report = safety::check_with_options(code, danger_mode)?;
+    let parsed = ps_parser::parse_ps1(code)?;
+    let report = safety::check_parsed_with_options(&parsed, danger_mode)?;
     if !report.ok {
         return Err(DstError::SafetyBlocked(report.violations.join("; ")));
     }
-    // parse_ps1 已含语法错误检查，无需再 validate_syntax
-    let parsed = ps_parser::parse_ps1(code)?;
     // 返回值只统计公共命令（小写开头）——它们才是用户可敲的命令；
     // 大写辅助函数同样会写入文件，但不作为"插入的命令"汇报
     let names: Vec<String> = parsed
@@ -646,8 +650,11 @@ $enc = New-Object System.Text.UTF8Encoding $true
     let _ = std::fs::remove_file(&tmp);
 
     let content = workspace::read_file(&rel)?;
-    assert_safety_ok(safety::check_with_options(&content, danger_mode)?)?;
     let file_parsed = ps_parser::parse_ps1(&content)?;
+    assert_safety_ok(safety::check_parsed_with_options(
+        &file_parsed,
+        danger_mode,
+    )?)?;
     sync::regenerate_with_parsed(file_name, Some(file_parsed))?;
     workspace::touch_last_sync()?;
     crate::install_mgr::spawn_sync_runtime_modules();

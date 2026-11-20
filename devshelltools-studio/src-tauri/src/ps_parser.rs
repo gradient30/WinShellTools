@@ -49,11 +49,24 @@ pub struct CategoryMeta {
     pub aliases: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct PsCommand {
+    pub name: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub dynamic: bool,
+    #[serde(default)]
+    pub within_should_process: bool,
+}
+
 /// 解析一个 .ps1 文件的结果。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedPsFile {
     pub category: Option<CategoryMeta>,
     pub functions: Vec<PsFunction>,
+    #[serde(default)]
+    pub commands: Vec<PsCommand>,
     #[serde(rename = "parseErrors")]
     pub parse_errors: Vec<String>,
 }
@@ -178,6 +191,95 @@ function ConvertTo-DstFunctionMeta {
 }
 "#;
 
+const PS_COMMAND_HELPER: &str = r#"
+function Test-DstWithinShouldProcess {
+    param($Node)
+    $parent = $Node.Parent
+    while ($null -ne $parent -and $parent -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) {
+        $parent = $parent.Parent
+    }
+    if ($null -eq $parent -or $null -eq $parent.Body.ParamBlock) {
+        return $false
+    }
+    foreach ($attribute in $parent.Body.ParamBlock.Attributes) {
+        if ($attribute.TypeName.Name -eq 'CmdletBinding') {
+            foreach ($named in $attribute.NamedArguments) {
+                if ($named.ArgumentName -eq 'SupportsShouldProcess') {
+                    return $true
+                }
+            }
+        }
+    }
+    return $false
+}
+
+function ConvertTo-DstArgumentValue {
+    param($Node)
+    if ($null -eq $Node) {
+        return ''
+    }
+    if ($Node -is [System.Management.Automation.Language.CommandParameterAst]) {
+        $value = '-' + $Node.ParameterName
+        if ($null -ne $Node.Argument) {
+            $value += ':' + $Node.Argument.Extent.Text.Trim()
+        }
+        return $value
+    }
+    if ($Node -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+        return [string]$Node.Value
+    }
+    return $Node.Extent.Text.Trim()
+}
+
+function Get-DstCommands {
+    param($Ast)
+    $result = @()
+    $commandAsts = $Ast.FindAll(
+        { param($node, $_) $node -is [System.Management.Automation.Language.CommandAst] },
+        $true
+    )
+    foreach ($commandAst in $commandAsts) {
+        $elements = @($commandAst.CommandElements)
+        $args = @()
+        if ($elements.Count -gt 1) {
+            foreach ($element in $elements[1..($elements.Count - 1)]) {
+                $args += ConvertTo-DstArgumentValue -Node $element
+            }
+        }
+        $name = [string]$commandAst.GetCommandName()
+        $result += [PSCustomObject]@{
+            name = $name
+            args = $args
+            dynamic = [string]::IsNullOrWhiteSpace($name)
+            within_should_process = [bool](Test-DstWithinShouldProcess -Node $commandAst)
+        }
+    }
+
+    $memberAsts = $Ast.FindAll(
+        { param($node, $_) $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] },
+        $true
+    )
+    foreach ($memberAst in $memberAsts) {
+        $memberName = if ($memberAst.Member -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+            [string]$memberAst.Member.Value
+        } else {
+            $memberAst.Member.Extent.Text.Trim()
+        }
+        $args = @()
+        foreach ($argument in @($memberAst.Arguments)) {
+            $args += ConvertTo-DstArgumentValue -Node $argument
+        }
+        $result += [PSCustomObject]@{
+            name = $memberName
+            args = $args
+            dynamic = [string]::IsNullOrWhiteSpace($memberName)
+            within_should_process = [bool](Test-DstWithinShouldProcess -Node $memberAst)
+        }
+    }
+    return $result
+}
+"#;
+
 /// 调用 powershell.exe 解析 .ps1 文本，返回结构化结果。
 /// 把 content 通过临时文件传递，避免 stdin 管道死锁。
 pub fn parse_ps1(content: &str) -> DstResult<ParsedPsFile> {
@@ -212,7 +314,7 @@ $raw = Get-Content -LiteralPath '{tmp_path_str}' -Raw -Encoding UTF8
 $errors = $null
 $tokens = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseInput($raw, [ref]$tokens, [ref]$errors)
-$result = [ordered]@{{ category = $null; functions = @(); parseErrors = @() }}
+$result = [ordered]@{{ category = $null; functions = @(); commands = @(); parseErrors = @() }}
 foreach ($e in $errors) {{ $result.parseErrors += $e.Extent.StartLineNumber.ToString() + ':' + $e.Message }}
 if ($null -ne $ast) {{
     $text = $ast.ToString()
@@ -235,10 +337,11 @@ if ($null -ne $ast) {{
     foreach ($fnAst in $fnAsts) {{
         $result.functions += ConvertTo-DstFunctionMeta -FnAst $fnAst
     }}
+    $result.commands = @(Get-DstCommands -Ast $ast)
 }}
 $result | ConvertTo-Json -Depth 8 -Compress
 "#,
-        helper = PS_FN_META_HELPER,
+        helper = format!("{PS_FN_META_HELPER}\n{PS_COMMAND_HELPER}"),
         tmp_path_str = tmp_path_str
     );
 
@@ -347,6 +450,7 @@ function Get-ParsedFile {{
     foreach ($e in $errors) {{ $parseErrors += ($e.Extent.StartLineNumber.ToString() + ':' + $e.Message) }}
     $category = $null
     $functions = @()
+    $commands = @()
     if ($null -ne $ast) {{
         $text = $ast.ToString()
         $m = [regex]::Match($text, '(?s)@DST-Category\s*\r?\n(.*?)\r?\n@DST-Category-End')
@@ -368,14 +472,15 @@ function Get-ParsedFile {{
         foreach ($fnAst in $fnAsts) {{
             $functions += ConvertTo-DstFunctionMeta -FnAst $fnAst
         }}
+        $commands = @(Get-DstCommands -Ast $ast)
     }}
-    [PSCustomObject]@{{ fileName = $fileName; category = $category; functions = $functions; parseErrors = $parseErrors }}
+    [PSCustomObject]@{{ fileName = $fileName; category = $category; functions = $functions; commands = $commands; parseErrors = $parseErrors }}
 }}
 $items = @()
 foreach ($p in @({paths_ps})) {{ $items += Get-ParsedFile -Path $p }}
 [PSCustomObject]@{{ items = $items }} | ConvertTo-Json -Depth 8 -Compress
 "#,
-        helper = PS_FN_META_HELPER,
+        helper = format!("{PS_FN_META_HELPER}\n{PS_COMMAND_HELPER}"),
         paths_ps = paths_ps
     );
 
@@ -413,6 +518,8 @@ foreach ($p in @({paths_ps})) {{ $items += Get-ParsedFile -Path $p }}
         file_name: String,
         category: Option<CategoryMeta>,
         functions: Vec<PsFunction>,
+        #[serde(default)]
+        commands: Vec<PsCommand>,
         #[serde(rename = "parseErrors")]
         parse_errors: Vec<String>,
     }
@@ -427,6 +534,7 @@ foreach ($p in @({paths_ps})) {{ $items += Get-ParsedFile -Path $p }}
             ParsedPsFile {
                 category: item.category,
                 functions: item.functions,
+                commands: item.commands,
                 parse_errors: item.parse_errors,
             },
         ));
@@ -589,5 +697,23 @@ filescmd
 }
 "#;
         assert!(parse_ps1(code).is_err());
+    }
+
+    #[test]
+    fn parse_extracts_git_global_options_and_arguments() {
+        let parsed = parse_ps1("git -c x=y reset --hard").expect("parse");
+        let git = parsed
+            .commands
+            .iter()
+            .find(|command| command.name == "git")
+            .expect("git command");
+        assert_eq!(git.args, vec!["-c", "x=y", "reset", "--hard"]);
+        assert!(!git.dynamic);
+    }
+
+    #[test]
+    fn parse_marks_variable_invocation_dynamic() {
+        let parsed = parse_ps1("$cmd = 'git'; & $cmd reset --hard").expect("parse");
+        assert!(parsed.commands.iter().any(|command| command.dynamic));
     }
 }
