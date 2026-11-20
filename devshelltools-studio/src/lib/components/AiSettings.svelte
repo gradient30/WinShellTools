@@ -32,6 +32,15 @@
     modelOptions.filter((m) => m.toLowerCase().includes(modelSearch.trim().toLowerCase()))
   );
 
+  /**
+   * 保存可用条件：
+   * - 测试连接成功（新配置 / 更换 API Key 等关键字段变更）；或
+   * - Key 已配置且本次未重填（编辑其它字段，保存时沿用已存 Key，无需重复测试）
+   */
+  let canSave = $derived(
+    !!editing && (testOk || (editing.key_configured && !newKey.trim()))
+  );
+
   async function load() {
     loading = true;
     errMsg = null;
@@ -239,8 +248,10 @@
       errMsg = "配置名称不能为空";
       return;
     }
-    if (!testOk) {
-      errMsg = "请先测试连接成功后再保存";
+    if (!canSave) {
+      errMsg = editing.key_configured
+        ? "填写了新 API Key 时，请先测试连接成功后再保存"
+        : "请先填写 API Key 并测试连接成功后再保存";
       return;
     }
     try {
@@ -452,7 +463,7 @@
           <button class="px-3 py-1.5 text-sm bg-dst-muted hover:bg-dst-muted rounded" onclick={testConnection} disabled={testing}>
             {testing ? "测试中…" : "测试连接"}
           </button>
-          <button class="px-3 py-1.5 text-sm bg-dst-accent text-dst-accent-fg hover:bg-dst-accent-hover rounded disabled:opacity-50" onclick={saveProfile} disabled={!testOk}>保存</button>
+          <button class="px-3 py-1.5 text-sm bg-dst-accent text-dst-accent-fg hover:bg-dst-accent-hover rounded disabled:opacity-50" onclick={saveProfile} disabled={!canSave}>保存</button>
           <button class="px-3 py-1.5 text-sm bg-dst-muted hover:bg-dst-muted rounded" onclick={() => (showDialog = false)}>取消</button>
         </div>
       </div>
