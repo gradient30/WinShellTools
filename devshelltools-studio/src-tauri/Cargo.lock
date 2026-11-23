@@ -511,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "devshelltools-studio"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "chrono",

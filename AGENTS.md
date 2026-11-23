@@ -10,9 +10,9 @@
 
 1. **DevShellTools（仓库根目录）**：一个 Windows PowerShell 模块（当前版本 **1.0.5**），提供开发与运维快捷命令（文件浏览、Git、网络诊断、代理管理、PowerShell 会话管理等）。目标运行时同时兼容 Windows PowerShell 5.1 与 PowerShell 7。命令行入口是 `dsh`（交互式分类菜单与帮助）。
 
-2. **devshelltools-studio/（子目录）**：一个 Tauri 2 桌面应用（当前版本 **1.0.6**），是上述模块的可视化管理工具。工作区路径为系统 **MyDocuments** 下的 `WindowsPowerShell\Modules\DevShellTools`（与 `install.ps1` 安装到 PS 5.1 的默认路径一致，支持文件夹重定向），提供分类/函数的编辑、AI 辅助生成、安全检查、一致性校验、PowerShell 语法校验、迁移/导出导入、软安装/卸载。元数据在 `.studio/` 子目录。**不再使用 git 工作区快照**（用户端不涉及版本控制）。
+2. **devshelltools-studio/（子目录）**：一个 Tauri 2 桌面应用（当前版本 **1.0.7**），是上述模块的可视化管理工具。工作区路径为系统 **MyDocuments** 下的 `WindowsPowerShell\Modules\DevShellTools`（与 `install.ps1` 安装到 PS 5.1 的默认路径一致，支持文件夹重定向），提供分类/函数的编辑、AI 辅助生成、安全检查、一致性校验、PowerShell 语法校验、迁移/导出导入、软安装/卸载。元数据在 `.studio/` 子目录。**不再使用 git 工作区快照**（用户端不涉及版本控制）。
 
-版本双轨：根目录模块源码为 1.0.5；Studio `templates/` 内嵌模块为 1.0.6（带 `@DST-Category` 元数据）。两者内容相近但不完全同步——改模块时如需 Studio 同步，应同时更新 `templates/`。
+版本双轨：根目录模块源码为 1.0.5；Studio 应用为 1.0.7；Studio `templates/` 内嵌模块为 1.0.6（带 `@DST-Category` 元数据）。模块内容相近但不完全同步——改模块时如需 Studio 同步，应同时更新 `templates/`。
 
 ## 目录结构
 
@@ -127,4 +127,5 @@ cargo test --offline --test m6_acceptance -- --test-threads=1
 - Studio：`pnpm exec tauri build --no-bundle`；`bundle.active = false`，默认只产出 exe。
 - 版本号分散在多处，升版本时需核对：
   - 根模块 1.0.5：`DevShellTools.psd1`、`README.md`、`install.ps1` 文案、`Public/Help.ps1`
-  - Studio/模板 1.0.6：`package.json`、`Cargo.toml`、`tauri.conf.json`、`templates/DevShellTools.psd1`、`templates/install.ps1`、`templates/Public/Help.ps1`、`template.rs` 的 `TEMPLATE_VERSION`
+  - Studio 1.0.7：`package.json`、`Cargo.toml`、`tauri.conf.json`
+  - Studio 模板 1.0.6：`templates/DevShellTools.psd1`、`templates/install.ps1`、`templates/Public/Help.ps1`、`template.rs` 的 `TEMPLATE_VERSION`

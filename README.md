@@ -7,9 +7,9 @@ Windows 上可扩展的 PowerShell 开发 / 运维快捷命令模块，附带可
 | 组件 | 版本 | 说明 |
 |------|------|------|
 | 根目录 PowerShell 模块 | **1.0.5** | `dsh` 入口；兼容 Windows PowerShell 5.1 与 PowerShell 7 |
-| DevShellTools Studio | **1.0.6** | Tauri 2 便携桌面应用；内嵌模板版本 1.0.6 |
+| DevShellTools Studio | **1.0.7** | Tauri 2 便携桌面应用；内嵌模板版本 1.0.6 |
 
-> 版本双轨：仓库根目录模块源码为 1.0.5；Studio `templates/` 为 1.0.6（带分类元数据）。日常通过 Studio 管理时以工作区 / 模板为准。
+> 版本双轨：仓库根目录模块源码为 1.0.5；Studio 为 1.0.7，`templates/` 内嵌模块为 1.0.6（带分类元数据）。日常通过 Studio 管理时以工作区 / 模板为准。
 
 ---
 
@@ -192,7 +192,9 @@ pwsh -NoProfile -File .\scripts\verify.ps1
 
 **根模块 1.0.5：** `DevShellTools.psd1`、`README.md`、`install.ps1` 文案、`Public/Help.ps1`
 
-**Studio / 模板 1.0.6：** `package.json`、`Cargo.toml`、`tauri.conf.json`、`templates/DevShellTools.psd1`、`templates/install.ps1`、`templates/Public/Help.ps1`、`src-tauri/src/template.rs`（`TEMPLATE_VERSION`）
+**Studio 1.0.7：** `package.json`、`Cargo.toml`、`tauri.conf.json`
+
+**Studio 模板 1.0.6：** `templates/DevShellTools.psd1`、`templates/install.ps1`、`templates/Public/Help.ps1`、`src-tauri/src/template.rs`（`TEMPLATE_VERSION`）
 
 ---
 
@@ -257,7 +259,7 @@ Get-Command dsh -ErrorAction SilentlyContinue   # 应无结果
 
 ### Q10. Studio 与根目录模块版本不一致？
 
-设计如此：根模块源码 1.0.5，Studio 内嵌模板 1.0.6。用 Studio 初始化 / 安装后，工作区以模板版本为准。若要从 Git 根目录脚本安装，则得到 1.0.5 模块源。
+设计如此：根模块源码 1.0.5，Studio 1.0.7，Studio 内嵌模板 1.0.6。用 Studio 初始化 / 安装后，工作区以模板版本为准。若要从 Git 根目录脚本安装，则得到 1.0.5 模块源。
 
 ### Q11. 开发版如何不安装直接试用模块？
 
@@ -282,6 +284,10 @@ dsh
 ---
 
 ## 变更记录
+
+### Studio 1.0.7
+
+- 修复 Kimi 模型名带提供商前缀时未强制 `temperature=1` 导致的 400 错误。
 
 ### Studio 1.0.6 / 模板 1.0.6
 
