@@ -16,7 +16,7 @@ pub const GIT_PS1: &str = include_str!("../../templates/Public/Git.ps1");
 pub const NETWORK_PS1: &str = include_str!("../../templates/Public/Network.ps1");
 pub const HELP_PS1: &str = include_str!("../../templates/Public/Help.ps1");
 
-pub const TEMPLATE_VERSION: &str = "1.0.5";
+pub const TEMPLATE_VERSION: &str = "1.0.6";
 
 /// 把内嵌模板整体写入工作区根目录。覆盖已存在文件。
 pub fn write_template_to(workspace_root: &Path) -> std::io::Result<()> {

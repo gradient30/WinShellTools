@@ -135,7 +135,7 @@ if (-not (Test-Path -LiteralPath $manifest)) {
 Import-Module $manifest -Force
 
 Write-Host ""
-Write-Host "[成功] DevShellTools 1.0.4 安装完成。" -ForegroundColor Green
+Write-Host "[成功] DevShellTools 1.0.5 安装完成。" -ForegroundColor Green
 Write-Host "首次使用：dsh"
 Write-Host "直接分类：dsh files | powershell | proxy | git | network"
 Write-Host ""

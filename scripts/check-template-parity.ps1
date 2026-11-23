@@ -38,7 +38,7 @@ function Compare-SharedFiles([string]$Root, [string]$Templates) {
             $errors.Add("$($pair.Template)/$name exists only in Studio template")
         }
         foreach ($name in ($rootFiles | Where-Object { $_ -in $templateFiles })) {
-            # Help.ps1 包含模板块，根模块保留 1.0.4 的已生成形态；内容由一致性测试覆盖。
+            # Help.ps1 包含模板块，根模块保留 1.0.5 的已生成形态；内容由一致性测试覆盖。
             if ($name -eq "Help.ps1") { continue }
             $rootText = Normalize-Source (Get-Content -LiteralPath (Join-Path $rootDir $name) -Raw)
             $templateText = Normalize-Source (Get-Content -LiteralPath (Join-Path $templateDir $name) -Raw)

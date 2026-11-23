@@ -1,7 +1,7 @@
 # DevShellTools Studio 项目移交文档
 
 > 本文档面向接手负责人，汇总项目研发路线、完成进度、当前状态及关键决策。
-> 更新时间：2026-08-05（安装自毁修复 + 联合审核后）
+> 更新时间：2026-11-23（安全、稳定性与性能硬化发布）
 
 ---
 
@@ -12,10 +12,10 @@
 - **仓库根目录**：`D:\workspace_test\github_desk\DevShellTools`
 - **远程仓库**：https://repo.mvp.edu.kg/QAS/WinShellTools.git（仓库已更名为 WinShellTools）
 - **Studio 子目录**：`devshelltools-studio/`
-- **Studio / 模板版本**：1.0.5
-- **根目录模块版本**：1.0.4（与模板双轨，内容相近但不完全同步）
+- **Studio / 模板版本**：1.0.6
+- **根目录模块版本**：1.0.5（与模板双轨，内容相近但不完全同步）
 - **便携 exe**：`devshelltools-studio/src-tauri/target/release/devshelltools-studio.exe`
-- **技术栈**：Tauri 2.8.5（devtools）+ Svelte 5（runes）+ Tailwind CSS 4 + Rust（edition 2021）
+- **技术栈**：Tauri 2.8.5（生产构建不含 devtools）+ Svelte 5（runes）+ Tailwind CSS 4 + Rust（edition 2021）
 - **构建工具**：pnpm + cargo（离线优先）
 
 ---
@@ -98,12 +98,12 @@ cargo test --offline --test m6_acceptance -- --test-threads=1
 
 ### 后续可选
 
-- [ ] 真正的 AI 流式逐 token 推送（Tauri event）
+- [x] 真正的 AI 流式增量推送（Tauri Channel）
 - [ ] 工作区 zip 单文件导出（引入 `zip` crate）
-- [ ] 凭证迁移到 Windows Credential Manager
+- [x] 凭证迁移到 Windows 当前用户 DPAPI 加密
 - [ ] Pester 覆盖根目录 PowerShell 模块
 - [ ] CI/CD 自动构建发布
-- [ ] 根模块 1.0.4 与模板 1.0.5 内容完全同步并统一升版
+- [ ] 根模块 1.0.5 与模板 1.0.6 内容完全同步并统一升版
 
 ---
 
@@ -111,7 +111,7 @@ cargo test --offline --test m6_acceptance -- --test-threads=1
 
 1. **离线构建**：cargo 加 `--offline` 与 `$env:CARGO_NET_OFFLINE="true"`
 2. **vite base**：`base: "./"` 必须在 `defineConfig` 顶层（否则 release 黑屏）
-3. **版本双轨**：根 1.0.4 vs Studio/模板 1.0.5，升版时分别核对（见 `AGENTS.md`）
+3. **版本双轨**：根 1.0.5 vs Studio/模板 1.0.6，升版时分别核对（见 `AGENTS.md`）
 4. **真实 Documents**：勿在未设 `DST_MY_DOCUMENTS` 时对验收测试跑安装用例，以免污染用户模块目录
 
 ---

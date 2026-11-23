@@ -293,7 +293,7 @@ customcmd
 
         let preview = export::preview_bundle(bundle.to_str().unwrap()).expect("preview");
         assert!(preview.manifest_found, "应识别 manifest");
-        assert_eq!(preview.template_version, "1.0.5");
+        assert_eq!(preview.template_version, "1.0.6");
         let custom = preview
             .items
             .iter()

@@ -1,6 +1,6 @@
 @{
     RootModule        = 'DevShellTools.psm1'
-    ModuleVersion     = '1.0.5'
+    ModuleVersion     = '1.0.6'
     GUID              = 'b7dc2664-8f08-42ba-a37b-a38886d589fd'
     Author            = 'OpenAI'
     CompanyName       = 'User-local'

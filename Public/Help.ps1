@@ -281,7 +281,7 @@ dsh version
     switch ($Action) {
         "menu" { Start-DstMenu }
         "list" { Show-DstCategories }
-        "version" { "DevShellTools 1.0.4" }
+        "version" { "DevShellTools 1.0.5" }
         "help" {
             if ($Category -eq "all") {
                 Show-DstCategories

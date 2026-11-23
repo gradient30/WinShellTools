@@ -6,10 +6,10 @@ Windows 上可扩展的 PowerShell 开发 / 运维快捷命令模块，附带可
 
 | 组件 | 版本 | 说明 |
 |------|------|------|
-| 根目录 PowerShell 模块 | **1.0.4** | `dsh` 入口；兼容 Windows PowerShell 5.1 与 PowerShell 7 |
-| DevShellTools Studio | **1.0.5** | Tauri 2 便携桌面应用；内嵌模板版本 1.0.5 |
+| 根目录 PowerShell 模块 | **1.0.5** | `dsh` 入口；兼容 Windows PowerShell 5.1 与 PowerShell 7 |
+| DevShellTools Studio | **1.0.6** | Tauri 2 便携桌面应用；内嵌模板版本 1.0.6 |
 
-> 版本双轨：仓库根目录模块源码为 1.0.4；Studio `templates/` 为 1.0.5（带分类元数据）。日常通过 Studio 管理时以工作区 / 模板为准。
+> 版本双轨：仓库根目录模块源码为 1.0.5；Studio `templates/` 为 1.0.6（带分类元数据）。日常通过 Studio 管理时以工作区 / 模板为准。
 
 ---
 
@@ -190,9 +190,9 @@ pwsh -NoProfile -File .\scripts\verify.ps1
 
 升版本时请逐一修改：
 
-**根模块 1.0.4：** `DevShellTools.psd1`、`README.md`、`install.ps1` 文案、`Public/Help.ps1`
+**根模块 1.0.5：** `DevShellTools.psd1`、`README.md`、`install.ps1` 文案、`Public/Help.ps1`
 
-**Studio / 模板 1.0.5：** `package.json`、`Cargo.toml`、`tauri.conf.json`、`templates/DevShellTools.psd1`、`templates/install.ps1`、`templates/Public/Help.ps1`、`src-tauri/src/template.rs`（`TEMPLATE_VERSION`）
+**Studio / 模板 1.0.6：** `package.json`、`Cargo.toml`、`tauri.conf.json`、`templates/DevShellTools.psd1`、`templates/install.ps1`、`templates/Public/Help.ps1`、`src-tauri/src/template.rs`（`TEMPLATE_VERSION`）
 
 ---
 
@@ -257,7 +257,7 @@ Get-Command dsh -ErrorAction SilentlyContinue   # 应无结果
 
 ### Q10. Studio 与根目录模块版本不一致？
 
-设计如此：根模块源码 1.0.4，Studio 内嵌模板 1.0.5。用 Studio 初始化 / 安装后，工作区以模板版本为准。若要从 Git 根目录脚本安装，则得到 1.0.4 模块源。
+设计如此：根模块源码 1.0.5，Studio 内嵌模板 1.0.6。用 Studio 初始化 / 安装后，工作区以模板版本为准。若要从 Git 根目录脚本安装，则得到 1.0.5 模块源。
 
 ### Q11. 开发版如何不安装直接试用模块？
 
@@ -282,6 +282,19 @@ dsh
 ---
 
 ## 变更记录
+
+### Studio 1.0.6 / 模板 1.0.6
+
+- PowerShell 生成内容统一使用安全字面量编码，并增加 AST 结构安全检查。
+- AI 示例改为显式确认后运行；补齐 AI 真流式、上下文预算、请求取消与超时。
+- API Key 改用当前 Windows 用户 DPAPI 加密，旧明文自动兼容迁移。
+- 工作区写入改为可恢复事务；运行时模块同步改为单实例合并队列。
+- 收紧 Tauri/WebView 权限，增加完整发布门禁和安全/模板自检。
+
+### 模块 1.0.5
+
+- `gpp` 拒绝 force push 参数，`lpr` 不再自动修改用户级代理变量。
+- 修复并强化 PowerShell 模块的安全边界与稳定性。
 
 ### 模块 1.0.4
 

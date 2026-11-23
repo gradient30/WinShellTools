@@ -362,7 +362,7 @@
   <header class="px-5 py-3 bg-dst-surface border-b border-dst-border flex items-center justify-between">
     <div>
       <h1 class="text-lg font-bold text-dst-accent">DevShellTools Studio</h1>
-      <p class="text-xs text-dst-fg-muted">模板 v1.0.5 · M6</p>
+      <p class="text-xs text-dst-fg-muted">模板 v1.0.6 · M6</p>
     </div>
     <nav class="flex gap-1 items-center">
       <button
@@ -430,7 +430,7 @@
         <h2 class="text-lg font-semibold text-dst-warning-fg mb-2">首次使用</h2>
         <p class="text-sm text-dst-fg mb-1">未检测到工作区。</p>
         <p class="text-xs text-dst-fg-muted mb-4">
-          将在 <code class="text-dst-accent">{$workspace?.root ?? ""}</code> 初始化 DevShellTools 1.0.5 模板。
+          将在 <code class="text-dst-accent">{$workspace?.root ?? ""}</code> 初始化 DevShellTools 1.0.6 模板。
         </p>
         {#if $initProgress}
           <div class="mb-4 text-left">
