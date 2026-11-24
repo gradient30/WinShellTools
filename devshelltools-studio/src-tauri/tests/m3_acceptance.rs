@@ -7,6 +7,7 @@ mod tests {
     use crate::common::IsolatedProfile;
     use devshelltools_studio_lib::ai_config;
     use devshelltools_studio_lib::function_edit;
+    use devshelltools_studio_lib::key_store;
     use devshelltools_studio_lib::ps_parser;
     use devshelltools_studio_lib::safety;
     use devshelltools_studio_lib::workspace;
@@ -18,6 +19,32 @@ mod tests {
         assert_eq!(cfg.protocol, ai_config::AiProtocol::Openai);
         assert!(cfg.base_url.contains("openai.com"));
         assert!(!cfg.model.is_empty());
+    }
+
+    #[test]
+    fn editing_existing_kimi_profile_without_new_key_persists() {
+        let _guard = IsolatedProfile::new("m3-kimi-save");
+        workspace::init_from_template().expect("init");
+        let id = "kimi-profile";
+        key_store::save_secret(id, "test-key").expect("key");
+        let profile = ai_config::AiProfile {
+            id: id.into(),
+            name: "k3.1-pro".into(),
+            protocol: ai_config::AiProtocol::Openai,
+            base_url: "https://api.kimi.com/coding/v1".into(),
+            model: "kimi-for-coding".into(),
+            temperature: 1.0,
+            max_tokens: 8192,
+            key_configured: true,
+        };
+        ai_config::save_profile(profile, None).expect("save existing profile");
+        let saved = ai_config::list_profiles()
+            .expect("list")
+            .into_iter()
+            .find(|item| item.id == id)
+            .expect("saved profile");
+        assert_eq!(saved.max_tokens, 8192);
+        assert!(saved.key_configured);
     }
 
     /// 验收2：System Prompt 含全部安全规则

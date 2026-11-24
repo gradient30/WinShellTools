@@ -109,9 +109,8 @@ if (-not $SkipProfile) {
         if ($null -eq $content) { $content = "" }
 
         if ($content -notmatch "(?m)^\s*Import-Module\s+DevShellTools\b") {
-            Add-Content -LiteralPath $profilePath -Value ""
-            Add-Content -LiteralPath $profilePath -Value "# DevShellTools"
-            Add-Content -LiteralPath $profilePath -Value "Import-Module DevShellTools -Force -ErrorAction SilentlyContinue"
+            $profileEntry = "{0}# DevShellTools{0}Import-Module DevShellTools -Force -ErrorAction SilentlyContinue" -f [Environment]::NewLine
+            Add-Content -LiteralPath $profilePath -Value $profileEntry
             Write-Host "[成功] 已更新 Profile：$profilePath" -ForegroundColor Green
         }
     }

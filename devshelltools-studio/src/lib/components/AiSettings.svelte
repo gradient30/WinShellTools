@@ -17,8 +17,10 @@
   let selectedPresetId = $state("custom");
   let newKey = $state("");
   let testing = $state(false);
+  let saving = $state(false);
   let testOk = $state(false);
   let testMsg = $state("");
+  let dialogErrMsg = $state<string | null>(null);
   let endpointNote = $state("");
   let testingProfile = $state<string | null>(null);
   let profileTestResult = $state<Record<string, { ok: boolean; msg: string }>>({});
@@ -55,11 +57,14 @@
 
   /**
    * 保存可用条件：
-   * - 测试连接成功（新配置 / 更换 API Key 等关键字段变更）；或
-   * - Key 已配置且本次未重填（编辑其它字段，保存时沿用已存 Key，无需重复测试）
+   * - 名称非空；且
+   * - 已有 Key，或本次填写了新 Key。
+   * 测试连接不是保存前置条件；保存失败由弹窗内错误区展示。
    */
   let canSave = $derived(
-    !!editing && (testOk || (editing.key_configured && !newKey.trim()))
+    !!editing &&
+      !!editing.name.trim() &&
+      (editing.key_configured || !!newKey.trim())
   );
 
   async function load() {
@@ -128,6 +133,8 @@
     }
     testOk = false;
     testMsg = "";
+    dialogErrMsg = null;
+    saving = false;
   }
 
   /// 切换协议：保持提供商不变，只切换端点
@@ -159,6 +166,8 @@
     editing.protocol = next;
     testOk = false;
     testMsg = "";
+    dialogErrMsg = null;
+    saving = false;
   }
 
   function openAdd() {
@@ -177,6 +186,8 @@
     newKey = "";
     testOk = false;
     testMsg = "";
+    dialogErrMsg = null;
+    saving = false;
     endpointNote = "";
     modelOptions = [];
     showModelPicker = false;
@@ -189,6 +200,8 @@
     newKey = "";
     testOk = false;
     testMsg = "";
+    dialogErrMsg = null;
+    saving = false;
     endpointNote = "";
     modelOptions = [];
     showModelPicker = false;
@@ -232,6 +245,7 @@
   async function testConnection() {
     if (!editing) return;
     testing = true;
+    dialogErrMsg = null;
     testOk = false;
     testMsg = "";
     errMsg = null;
@@ -243,6 +257,7 @@
     } catch (e) {
       testOk = false;
       testMsg = String(e);
+      dialogErrMsg = String(e);
     } finally {
       testing = false;
     }
@@ -265,16 +280,17 @@
   }
 
   async function saveProfile() {
-    if (!editing || !editing.name.trim()) {
-      errMsg = "配置名称不能为空";
+    if (!editing) return;
+    dialogErrMsg = null;
+    if (!editing.name.trim()) {
+      dialogErrMsg = "配置名称不能为空";
       return;
     }
-    if (!canSave) {
-      errMsg = editing.key_configured
-        ? "填写了新 API Key 时，请先测试连接成功后再保存"
-        : "请先填写 API Key 并测试连接成功后再保存";
+    if (!editing.key_configured && !newKey.trim()) {
+      dialogErrMsg = "请填写 API Key 后再保存";
       return;
     }
+    saving = true;
     try {
       await api.saveAiProfile(editing, newKey.trim() || undefined);
       if (defaultId === editing.id || profiles.length === 0) {
@@ -282,12 +298,15 @@
         defaultId = editing.id;
       }
       showDialog = false;
+      errMsg = null;
       successMsg = "已保存配置";
       await load();
       // 通知 AI 助手面板刷新
       window.dispatchEvent(new CustomEvent("ai-config-changed"));
     } catch (e) {
-      errMsg = String(e);
+      dialogErrMsg = String(e);
+    } finally {
+      saving = false;
     }
   }
 
@@ -483,11 +502,18 @@
             {testOk ? "连接成功：" : "连接失败："}{testMsg}
           </div>
         {/if}
+        {#if dialogErrMsg}
+          <div role="alert" class="p-2 text-xs rounded border border-dst-danger-border bg-dst-danger-bg text-dst-danger-fg">
+            {dialogErrMsg}
+          </div>
+        {/if}
         <div class="flex gap-2 pt-2">
-          <button class="px-3 py-1.5 text-sm bg-dst-muted hover:bg-dst-muted rounded" onclick={testConnection} disabled={testing}>
+          <button class="px-3 py-1.5 text-sm bg-dst-muted hover:bg-dst-muted rounded" onclick={testConnection} disabled={testing || saving}>
             {testing ? "测试中…" : "测试连接"}
           </button>
-          <button class="px-3 py-1.5 text-sm bg-dst-accent text-dst-accent-fg hover:bg-dst-accent-hover rounded disabled:opacity-50" onclick={saveProfile} disabled={!canSave}>保存</button>
+          <button class="px-3 py-1.5 text-sm bg-dst-accent text-dst-accent-fg hover:bg-dst-accent-hover rounded disabled:opacity-50" onclick={saveProfile} disabled={!canSave || saving}>
+            {saving ? "保存中…" : "保存"}
+          </button>
           <button class="px-3 py-1.5 text-sm bg-dst-muted hover:bg-dst-muted rounded" onclick={() => (showDialog = false)}>取消</button>
         </div>
       </div>

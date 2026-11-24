@@ -12,7 +12,7 @@
 - **仓库根目录**：`D:\workspace_test\github_desk\DevShellTools`
 - **远程仓库**：https://repo.mvp.edu.kg/QAS/WinShellTools.git（仓库已更名为 WinShellTools）
 - **Studio 子目录**：`devshelltools-studio/`
-- **Studio 版本**：1.0.7
+- **Studio 版本**：1.0.8
 - **Studio 模板版本**：1.0.6
 - **根目录模块版本**：1.0.5（与模板双轨，内容相近但不完全同步）
 - **便携 exe**：`devshelltools-studio/src-tauri/target/release/devshelltools-studio.exe`
@@ -112,7 +112,7 @@ cargo test --offline --test m6_acceptance -- --test-threads=1
 
 1. **离线构建**：cargo 加 `--offline` 与 `$env:CARGO_NET_OFFLINE="true"`
 2. **vite base**：`base: "./"` 必须在 `defineConfig` 顶层（否则 release 黑屏）
-3. **版本双轨**：根模块 1.0.5、Studio 1.0.7、Studio 模板 1.0.6，升版时分别核对（见 `AGENTS.md`）
+3. **版本双轨**：根模块 1.0.5、Studio 1.0.8、Studio 模板 1.0.6，升版时分别核对（见 `AGENTS.md`）
 4. **真实 Documents**：勿在未设 `DST_MY_DOCUMENTS` 时对验收测试跑安装用例，以免污染用户模块目录
 
 ---
